@@ -331,9 +331,10 @@ function etToLocal(timeStr) {
   return utc.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }) + ", " + timePart;
 }
 
-// playerSplits = {home: statRow, road: statRow} from /api/splits (NBA.com location_nullable)
-// teamDef = {fg3VsAvg, rimVsAvg} from /api/team-defense (NBA.com LeagueDashPtTeamDefend)
-function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, teamData = TEAM_DATA, recent = null, vsOpponent = null, playerSplits = null, teamDef = null) {
+// playerSplits = {home, road} from /api/splits · teamDef from /api/team-defense
+// scoring = {pctPts3pt, pctPtsPaint, ...} from /api/scoring (LeagueDashPlayerStats Scoring)
+// clutch  = {ppg, gp, ...} from /api/clutch (LeagueDashPlayerClutch Playoffs)
+function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, teamData = TEAM_DATA, recent = null, vsOpponent = null, playerSplits = null, teamDef = null, scoring = null, clutch = null) {
   const rs = player.rs, po = player.po;
   const propRS = prop.statKey(rs), propPO = prop.statKey(po);
   const propRecent = recent ? +prop.statKey(recent).toFixed(2) : null;
@@ -351,10 +352,29 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
   let paceAdj = 1.0;
   if (gamePace && ptd) paceAdj = +(gamePace / ptd.rsPace).toFixed(4);
 
-  // ── OPPONENT DEFENSIVE EFFICIENCY ADJUSTMENT ───────────────────────────────
-  // Source: NBA.com LeagueDashTeamStats Playoffs Advanced (oEFF/dEFF/eDIFF)
+  // ── OPPONENT DEFENSIVE EFFICIENCY — zone-weighted for points, flat otherwise ──
+  // Source: NBA.com LeagueDashTeamStats PO (dEFF) + LeagueDashPtTeamDefend PO (zones)
+  //         + LeagueDashPlayerStats PO Scoring (shot profile)
+  // For POINTS prop: weights zone defense by player's actual shot distribution.
+  //   pct3 * fg3VsAvg = how much the opp 3pt defense matters for THIS player's scoring
+  //   pctPaint * rimVsAvg = same for paint scoring
+  //   pctOther * flatDEFF = midrange/FT portion uses overall dEFF delta
+  // For all other scoring props: flat dEFF (113.5 league avg / opp dEFF).
   let defAdj = 1.0;
-  if (otd?.dEFF && isScoringProp) defAdj = +(113.5 / otd.dEFF).toFixed(4);
+  if (isScoringProp) {
+    const s = scoring; const td = teamDef?.[oppTeam];
+    if (prop.id === "points" && s && td && otd?.dEFF) {
+      const pct3     = (s.pctPts3pt   ?? 0) / 100;
+      const pctPaint = (s.pctPtsPaint ?? 0) / 100;
+      const pctOther = Math.max(0, 1 - pct3 - pctPaint);
+      const fg3Impact  = pct3     * (td.fg3VsAvg ?? 0);
+      const rimImpact  = pctPaint * (td.rimVsAvg ?? 0);
+      const flatImpact = pctOther * (113.5 / otd.dEFF - 1);
+      defAdj = +Math.max(0.88, Math.min(1.12, 1 + fg3Impact + rimImpact + flatImpact)).toFixed(4);
+    } else if (otd?.dEFF) {
+      defAdj = +(113.5 / otd.dEFF).toFixed(4);
+    }
+  }
 
   // ── HOME / ROAD ADJUSTMENT — per player, per stat, live NBA.com data ───────
   // Source: NBA.com LeagueDashPlayerStats Playoffs, location_nullable=Home/Road
@@ -415,6 +435,19 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
     fg3DefAdj = +Math.max(0.92, Math.min(1.08, 1 + pctVsAvg)).toFixed(4);
   }
 
+  // ── CLUTCH ADJUSTMENT ─────────────────────────────────────────────────────
+  // Source: NBA.com LeagueDashPlayerClutch Playoffs (last 5 min, within 5 pts)
+  // Compares player's clutch PPG to their overall PO PPG. Playoff games have
+  // more clutch possessions than regular season → performance matters more.
+  // Effect weighted at 25% (clutch isn't the whole game). Cap ±5%.
+  // Applied to scoring props only. Requires ≥2 clutch GP to use.
+  let clutchAdj = 1.0;
+  if (isScoringProp && clutch && po.ppg > 0 && clutch.gp >= 2) {
+    const clutchRatio = clutch.ppg / po.ppg;
+    const rawAdj = (clutchRatio - 1) * 0.25; // 25% weight
+    clutchAdj = +Math.max(0.95, Math.min(1.05, 1 + rawAdj)).toFixed(4);
+  }
+
   // ── VS OPPONENT ADJUSTMENT ────────────────────────────────────────────────
   // Source: nba_api PlayerGameLog filtered by opponent (PO first, RS fallback)
   // Ratio of player's historical avg vs this team vs their PO avg, capped ±8%
@@ -424,8 +457,8 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
     vsOppAdj = +(1 + Math.max(-0.08, Math.min(0.08, rawAdj))).toFixed(4);
   }
 
-  const adjustedProjection = +(blended * paceAdj * defAdj * homeAdj * restAdj * onOffAdj * tsAdj * fg3DefAdj * vsOppAdj).toFixed(1);
-  return { propRS, propPO, propRecent, propVsOpp, blended, gamePace, paceAdj, defAdj, homeAdj, restAdj, onOffAdj, tsAdj, fg3DefAdj, vsOppAdj, isHome, restDays, adjustedProjection };
+  const adjustedProjection = +(blended * paceAdj * defAdj * homeAdj * restAdj * onOffAdj * tsAdj * fg3DefAdj * clutchAdj * vsOppAdj).toFixed(1);
+  return { propRS, propPO, propRecent, propVsOpp, blended, gamePace, paceAdj, defAdj, homeAdj, restAdj, onOffAdj, tsAdj, fg3DefAdj, clutchAdj, vsOppAdj, isHome, restDays, adjustedProjection };
 }
 
 const S = `
@@ -537,6 +570,9 @@ export default function NBAPropsModel() {
   const [nbaApiStatus, setNbaApiStatus] = useState("loading"); // "loading" | "live" | "offline"
   const [homeAwaySplits, setHomeAwaySplits] = useState(null); // per-player home/road PO splits
   const [teamDefense, setTeamDefense] = useState(null);       // per-team zone defense (3pt, rim)
+  const [scoringBreakdown, setScoringBreakdown] = useState(null); // % pts from 3s/paint/FTs/MR
+  const [clutchStats, setClutchStats] = useState(null);           // clutch PO stats per player
+  const [hustleStats, setHustleStats] = useState(null);           // deflections, box-outs, etc
   const [recentStats, setRecentStats] = useState(null);
   const [vsOpponentStats, setVsOpponentStats] = useState(null);
   const [pname, setPname] = useState("");
@@ -614,28 +650,32 @@ Include only players with confirmed status on today's official report. Status me
     fetchInjuries();
   }, []);
 
-  // ── Fetch all NBA.com data from Render backend (all endpoints cached server-side) ──
+  // ── Fetch all NBA.com data from Render backend (all 7 endpoints cached server-side) ──
   useEffect(() => {
     const fetchNBAData = async () => {
       try {
-        const [playersResp, teamsResp, splitsResp, teamDefResp] = await Promise.all([
+        const [playersResp, teamsResp, splitsResp, teamDefResp, scoringResp, clutchResp, hustleResp] = await Promise.all([
           fetch(`${API_BASE}/players`),
           fetch(`${API_BASE}/teams`),
           fetch(`${API_BASE}/splits`),
           fetch(`${API_BASE}/team-defense`),
+          fetch(`${API_BASE}/scoring`),
+          fetch(`${API_BASE}/clutch`),
+          fetch(`${API_BASE}/hustle`),
         ]);
-        // Players + Teams are required; splits + team-defense are optional enhancements
         if (!playersResp.ok || !teamsResp.ok) throw new Error("server error");
-        const [playersData, teamsData, splitsData, teamDefData] = await Promise.all([
-          playersResp.json(),
-          teamsResp.json(),
-          splitsResp.ok ? splitsResp.json() : Promise.resolve(null),
-          teamDefResp.ok ? teamDefResp.json() : Promise.resolve(null),
+        const safe = r => (r.ok ? r.json() : Promise.resolve(null));
+        const [playersData, teamsData, splitsData, teamDefData, scoringData, clutchData, hustleData] = await Promise.all([
+          playersResp.json(), teamsResp.json(),
+          safe(splitsResp), safe(teamDefResp), safe(scoringResp), safe(clutchResp), safe(hustleResp),
         ]);
         if (playersData.success) setLivePlayerDB(playersData.players);
         if (teamsData.success) setLiveTeamData(teamsData.teams);
-        if (splitsData?.success) setHomeAwaySplits(splitsData.splits);
+        if (splitsData?.success)  setHomeAwaySplits(splitsData.splits);
         if (teamDefData?.success) setTeamDefense(teamDefData.teamDefense);
+        if (scoringData?.success) setScoringBreakdown(scoringData.scoring);
+        if (clutchData?.success)  setClutchStats(clutchData.clutch);
+        if (hustleData?.success)  setHustleStats(hustleData.hustle);
         setNbaApiStatus("live");
       } catch {
         setNbaApiStatus("offline");
@@ -732,15 +772,17 @@ Include only players with confirmed status on today's official report. Status me
     if (!(game[pt] || []).includes(player.key)) { setErr(`${dn(player.key)} (${pt}) is not in this game (${game.away} @ ${game.home}).`); return; }
     const isHome = pt === game.home;
     const restDays = game.restDays?.[pt] ?? null;
-    const playerSplits = homeAwaySplits?.[pkey] ?? null;
-    const proj = computeProjection(prop, player, pt, ot, isHome, restDays, effectiveTeamData, recentStats, vsOpponentStats, playerSplits, teamDefense);
+    const playerSplits  = homeAwaySplits?.[pkey]    ?? null;
+    const playerScoring = scoringBreakdown?.[pkey]  ?? null;
+    const playerClutch  = clutchStats?.[pkey]       ?? null;
+    const proj = computeProjection(prop, player, pt, ot, isHome, restDays, effectiveTeamData, recentStats, vsOpponentStats, playerSplits, teamDefense, playerScoring, playerClutch);
     const edge = +(proj.adjustedProjection - l).toFixed(2);
     const verdict = Math.abs(edge) < 0.3 ? "push" : edge > 0 ? "over" : "under";
     const abs = Math.abs(edge);
     const conf = abs >= 3 && player.po.gp >= 4 ? "HIGH" : abs >= 1.5 ? "MEDIUM" : "LOW";
     const inj = INJURIES[player.key] || null;
     setResult({ player, prop, game, pt, ot, l, proj, verdict, edge, conf, ptd: effectiveTeamData[pt], otd: effectiveTeamData[ot], isHome, restDays });
-  }, [canRun, game, db, prop, line, pkey, effectiveTeamData, recentStats, vsOpponentStats, homeAwaySplits, teamDefense]);
+  }, [canRun, game, db, prop, line, pkey, effectiveTeamData, recentStats, vsOpponentStats, homeAwaySplits, teamDefense, scoringBreakdown, clutchStats]);
 
   const exportToExcel = useCallback(() => {
     if (!result) return;
@@ -1000,6 +1042,10 @@ Include only players with confirmed status on today's official report. Status me
                   <span className="mk">{ot} 3pt defense ({teamDefense?.[ot]?.fg3VsAvg >= 0 ? "+" : ""}{teamDefense?.[ot] ? (teamDefense[ot].fg3VsAvg * 100).toFixed(1) : "?"}% vs lg avg · NBA.com PtTeamDefend PO)</span>
                   <span className={`mv ${proj.fg3DefAdj > 1.005 ? "pos" : proj.fg3DefAdj < 0.995 ? "neg" : ""}`}>×{proj.fg3DefAdj.toFixed(4)} ({proj.fg3DefAdj > 1.001 ? "+" : ""}{((proj.fg3DefAdj - 1) * 100).toFixed(2)}%)</span>
                 </div>}
+                {proj.clutchAdj !== 1.0 && <div className="mr">
+                  <span className="mk">Clutch performance ({clutchStats?.[pkey]?.ppg} PPG clutch vs {player.po.ppg} PO avg · {clutchStats?.[pkey]?.gp}g · NBA.com PlayerClutch PO)</span>
+                  <span className={`mv ${proj.clutchAdj > 1.001 ? "pos" : proj.clutchAdj < 0.999 ? "neg" : ""}`}>×{proj.clutchAdj.toFixed(4)} ({proj.clutchAdj > 1.001 ? "+" : ""}{((proj.clutchAdj - 1) * 100).toFixed(2)}%)</span>
+                </div>}
                 {proj.vsOppAdj !== 1.0 && <div className="mr">
                   <span className="mk">vs {ot} historical ({vsOpponentStats?.gp}g · {vsOpponentStats?.source} · nba_api game logs)</span>
                   <span className={`mv ${proj.vsOppAdj > 1.001 ? "pos" : proj.vsOppAdj < 0.999 ? "neg" : ""}`}>×{proj.vsOppAdj.toFixed(4)} ({proj.vsOppAdj > 1.001 ? "+" : ""}{((proj.vsOppAdj - 1) * 100).toFixed(2)}%)</span>
@@ -1009,7 +1055,7 @@ Include only players with confirmed status on today's official report. Status me
                   <span className="mv acc">{proj.adjustedProjection} {pr.label3}</span>
                 </div>
                 <div className="mf">
-                  {proj.blended} × {proj.paceAdj.toFixed(4)} (pace){proj.defAdj !== 1.0 ? ` × ${proj.defAdj.toFixed(4)} (dEFF)` : ""}{proj.homeAdj !== 1.0 ? ` × ${proj.homeAdj.toFixed(4)} (${isHome ? "home" : "road"})` : ""}{proj.restAdj !== 1.0 ? ` × ${proj.restAdj.toFixed(4)} (rest)` : ""}{proj.onOffAdj !== 1.0 ? ` × ${proj.onOffAdj.toFixed(4)} (on/off)` : ""}{proj.tsAdj !== 1.0 ? ` × ${proj.tsAdj.toFixed(4)} (TS%)` : ""}{proj.fg3DefAdj !== 1.0 ? ` × ${proj.fg3DefAdj.toFixed(4)} (3pt def)` : ""}{proj.vsOppAdj !== 1.0 ? ` × ${proj.vsOppAdj.toFixed(4)} (vs opp)` : ""} = {proj.adjustedProjection}
+                  {proj.blended} × {proj.paceAdj.toFixed(4)} (pace){proj.defAdj !== 1.0 ? ` × ${proj.defAdj.toFixed(4)} (def)` : ""}{proj.homeAdj !== 1.0 ? ` × ${proj.homeAdj.toFixed(4)} (${isHome ? "home" : "road"})` : ""}{proj.restAdj !== 1.0 ? ` × ${proj.restAdj.toFixed(4)} (rest)` : ""}{proj.onOffAdj !== 1.0 ? ` × ${proj.onOffAdj.toFixed(4)} (on/off)` : ""}{proj.tsAdj !== 1.0 ? ` × ${proj.tsAdj.toFixed(4)} (TS%)` : ""}{proj.fg3DefAdj !== 1.0 ? ` × ${proj.fg3DefAdj.toFixed(4)} (3pt def)` : ""}{proj.clutchAdj !== 1.0 ? ` × ${proj.clutchAdj.toFixed(4)} (clutch)` : ""}{proj.vsOppAdj !== 1.0 ? ` × ${proj.vsOppAdj.toFixed(4)} (vs opp)` : ""} = {proj.adjustedProjection}
                 </div>
               </div>
 
@@ -1066,16 +1112,22 @@ Include only players with confirmed status on today's official report. Status me
                 {player.po.usg && <div className="mr"><span className="mk">PO Usage% / TS%</span><span className={`mv ${player.po.ts && player.rs.ts && player.po.ts > player.rs.ts ? "pos" : player.po.ts && player.rs.ts && player.po.ts < player.rs.ts ? "neg" : ""}`}>{player.po.usg}% / {player.po.ts}%<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM</span></span></div>}
                 {player.onOffDelta !== null && player.onOffDelta !== undefined && <div className="mr"><span className="mk">On/Off NETRTG delta</span><span className={`mv ${player.onOffDelta > 0 ? "pos" : player.onOffDelta < 0 ? "neg" : ""}`}>{player.onOffDelta > 0 ? "+" : ""}{player.onOffDelta}<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM ON/OFF</span></span></div>}
                 <div className="mr"><span className="mk">PO min/game</span><span className="mv">{player.po.min} ({player.po.gp}g)</span></div>
+                {scoringBreakdown?.[pkey] && <div className="mr"><span className="mk">PO shot profile (pts from 3s / paint / FTs / midrange)</span><span className="mv">{scoringBreakdown[pkey].pctPts3pt}% / {scoringBreakdown[pkey].pctPtsPaint}% / {scoringBreakdown[pkey].pctPtsFt}% / {scoringBreakdown[pkey].pctPtsMr}%<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM SCORING</span></span></div>}
+                {clutchStats?.[pkey]?.gp >= 2 && <div className="mr"><span className="mk">PO clutch (last 5min ±5pts) — {clutchStats[pkey].gp}g</span><span className={`mv ${clutchStats[pkey].ppg > player.po.ppg ? "pos" : clutchStats[pkey].ppg < player.po.ppg ? "neg" : ""}`}>{clutchStats[pkey].ppg} PPG · {clutchStats[pkey].rpg} RPG · {clutchStats[pkey].apg} APG · {clutchStats[pkey].pm > 0 ? "+" : ""}{clutchStats[pkey].pm} PM<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM CLUTCH</span></span></div>}
+                {hustleStats?.[pkey] && (pr.id === "rebounds" || pr.id === "pra") && <div className="mr"><span className="mk">PO hustle — def box-outs / off box-outs / box-out rebs</span><span className="mv">{hustleStats[pkey].defBoxouts} / {hustleStats[pkey].offBoxouts} / {hustleStats[pkey].boxoutRebounds} per game<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM HUSTLE</span></span></div>}
+                {hustleStats?.[pkey] && (pr.id === "steals") && <div className="mr"><span className="mk">PO hustle — deflections / charges drawn / contested shots</span><span className="mv">{hustleStats[pkey].deflections} / {hustleStats[pkey].chargesDrawn} / {hustleStats[pkey].contestedShots} per game<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM HUSTLE</span></span></div>}
+                {hustleStats?.[pkey] && pr.id === "three_pointers" && <div className="mr"><span className="mk">PO contested 3pt shots player takes vs opponent contesting</span><span className="mv">{hustleStats[pkey].contested3pt} contested 3PA/g<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM HUSTLE</span></span></div>}
                 {pr.id === "pra" && <div className="mr"><span className="mk">PO PRA total</span><span className="mv acc">{(player.po.ppg + player.po.rpg + player.po.apg).toFixed(1)}</span></div>}
                 {pr.id === "pa" && <div className="mr"><span className="mk">PO P+A total</span><span className="mv acc">{(player.po.ppg + player.po.apg).toFixed(1)}</span></div>}
                 {pr.id === "pr" && <div className="mr"><span className="mk">PO P+R total</span><span className="mv acc">{(player.po.ppg + player.po.rpg).toFixed(1)}</span></div>}
               </div>
 
               <div className="dn">
-                DATA SOURCES — Player RS/PO stats: StatMuse · SportBusy · Fadeaway World · Basketball-Reference (confirmed Apr 30 2026) ·
-                Team pace/efficiency: NBAsuffer.com 2026 Playoff splits · Series: Sportradar live API ·
-                METHOD: PO avg ×0.6 + RS avg ×0.4, then multiplied by: RS Pace (NBA.com) · Opp dEFF (NBAsuffer PO) · Home/Road (NBAsuffer RS splits) · Rest Days (Sportradar+NBAsuffer) · On/Off NETRTG delta (NBA.com On/Off Court PO, where available) · TS% shift RS→PO (NBA.com Players Advanced, where available) ·
-                ZERO AI ESTIMATION. All adjustments from verified public sources. On/Off and TS% available for MIN and DEN players only — more teams added as screenshots provided.
+                ALL STATS LIVE FROM NBA.COM VIA NBA_API ·
+                Player RS/PO base + advanced: LeagueDashPlayerStats · Home/Road PO splits: location_nullable · Shot profile: Scoring measure ·
+                Clutch PO: LeagueDashPlayerClutch · Hustle PO: LeagueHustleStatsPlayer · Team zone defense: LeagueDashPtTeamDefend ·
+                Team pace+efficiency: LeagueDashTeamStats · vs-opponent + L5: PlayerGameLog ·
+                METHOD: PO×0.6+RS×0.4 (or PO×0.4+RS×0.25+L5×0.35) × Pace × Zone-weighted Defense × Home/Road × Rest × On/Off × TS% × 3pt Defense × Clutch × vs-Opponent
               </div>
             </div>
           );
