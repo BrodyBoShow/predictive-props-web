@@ -604,10 +604,12 @@ Include only players with confirmed status on today's official report. Status me
   useEffect(() => {
     setRecentStats(null);
     setVsOpponentStats(null);
-    if (!pkey || !game) return;
+    if (!pkey || !gid) return;
     const player = effectiveDB[pkey];
     if (!player?.pid) return;
-    const opp = player.team === game.home ? game.away : game.home;
+    const g = activeRosters[gid];
+    if (!g) return;
+    const opp = player.team === g.home ? g.away : g.home;
     Promise.all([
       fetch(`${API_BASE}/recent/${player.pid}`).then(r => r.json()).catch(() => null),
       fetch(`${API_BASE}/vs-opponent/${player.pid}/${opp}`).then(r => r.json()).catch(() => null),
@@ -615,7 +617,7 @@ Include only players with confirmed status on today's official report. Status me
       if (recentData?.success) setRecentStats(recentData.recent);
       if (vsData?.success) setVsOpponentStats(vsData.vsOpponent ? { ...vsData.vsOpponent, gp: vsData.gp, source: vsData.source } : null);
     });
-  }, [pkey, game, effectiveDB]);
+  }, [pkey, gid, effectiveDB, activeRosters]);
 
   // Merge live schedule metadata into static rosters using useMemo (correct hook for derived values)
   const activeRosters = useMemo(() => {
