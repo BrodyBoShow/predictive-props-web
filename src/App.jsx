@@ -331,7 +331,9 @@ function etToLocal(timeStr) {
   return utc.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }) + ", " + timePart;
 }
 
-function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, teamData = TEAM_DATA, recent = null, vsOpponent = null) {
+// playerSplits = {home: statRow, road: statRow} from /api/splits (NBA.com location_nullable)
+// teamDef = {fg3VsAvg, rimVsAvg} from /api/team-defense (NBA.com LeagueDashPtTeamDefend)
+function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, teamData = TEAM_DATA, recent = null, vsOpponent = null, playerSplits = null, teamDef = null) {
   const rs = player.rs, po = player.po;
   const propRS = prop.statKey(rs), propPO = prop.statKey(po);
   const propRecent = recent ? +prop.statKey(recent).toFixed(2) : null;
@@ -344,22 +346,35 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
   const isScoringProp = ["points", "pra", "pa", "pr"].includes(prop.id);
 
   // ── PACE ADJUSTMENT ────────────────────────────────────────────────────────
-  // Source: NBA.com RS pace, verified Apr 30 2026 (screenshot confirmed)
+  // Source: NBA.com RS pace (LeagueDashTeamStats)
   const gamePace = ptd && otd ? +((ptd.rsPace + otd.rsPace) / 2).toFixed(1) : null;
   let paceAdj = 1.0;
   if (gamePace && ptd) paceAdj = +(gamePace / ptd.rsPace).toFixed(4);
 
   // ── OPPONENT DEFENSIVE EFFICIENCY ADJUSTMENT ───────────────────────────────
-  // Source: NBAsuffer 2026 playoff dEFF, verified Apr 30 2026
+  // Source: NBA.com LeagueDashTeamStats Playoffs Advanced (oEFF/dEFF/eDIFF)
   let defAdj = 1.0;
-  if (otd && isScoringProp) defAdj = +(113.5 / otd.dEFF).toFixed(4);
+  if (otd?.dEFF && isScoringProp) defAdj = +(113.5 / otd.dEFF).toFixed(4);
 
-  // ── HOME COURT ADJUSTMENT ──────────────────────────────────────────────────
-  // Source: NBAsuffer 2025-26 RS home/away splits. Premium = 117.4/113.8 = 1.0316
-  // Scoring props only.
+  // ── HOME / ROAD ADJUSTMENT — per player, per stat, live NBA.com data ───────
+  // Source: NBA.com LeagueDashPlayerStats Playoffs, location_nullable=Home/Road
+  // Uses player's actual home vs road splits for this specific stat.
+  // Requires ≥2 games on each side to use; otherwise falls back to flat ±3%.
+  // Applied to ALL props (not just scoring) since data is stat-specific.
   let homeAdj = 1.0;
-  if (isScoringProp && isHome !== null) {
-    homeAdj = isHome ? 1.0316 : +(1 / 1.0316).toFixed(4);
+  if (isHome !== null) {
+    const hStat = playerSplits?.home ? prop.statKey(playerSplits.home) : null;
+    const rStat = playerSplits?.road ? prop.statKey(playerSplits.road) : null;
+    const hGP = playerSplits?.home?.gp ?? 0;
+    const rGP = playerSplits?.road?.gp ?? 0;
+    if (hStat > 0 && rStat > 0 && hGP >= 2 && rGP >= 2) {
+      // Live per-player, per-stat ratio from NBA.com
+      const ratio = isHome ? (hStat / rStat) : (rStat / hStat);
+      homeAdj = +Math.max(0.88, Math.min(1.12, ratio)).toFixed(4); // cap ±12%
+    } else if (isScoringProp) {
+      // Fallback: league-wide flat ±3% when splits not available
+      homeAdj = isHome ? 1.030 : +(1 / 1.030).toFixed(4);
+    }
   }
 
   // ── REST DAYS ADJUSTMENT ───────────────────────────────────────────────────
@@ -372,32 +387,32 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
   }
 
   // ── ON/OFF DELTA ADJUSTMENT (WOWY) ─────────────────────────────────────────
-  // Source: NBA.com On/Off Court Advanced, Playoffs 2025-26 (screenshots verified)
-  // onOffDelta = player's on-court NETRTG minus off-court NETRTG
-  // Positive = player helps team (e.g. Jokic +10.6: team much better with him on)
-  // Negative = team neutral or better without player on court
-  // Scale: each 1.0 NETRTG delta ≈ 0.04% scoring impact on player projection
-  //   (conservative — NETRTG is team-level, not player scoring directly)
-  // Cap: ±2.5% max to prevent outliers dominating
-  // Applied to scoring props only. Null = no data = no adjustment.
+  // Source: NBA.com On/Off Court Advanced, Playoffs 2025-26
+  // Scale: each 1.0 NETRTG delta ≈ 0.04% scoring impact. Cap ±2.5%.
   let onOffAdj = 1.0;
   if (isScoringProp && player.onOffDelta !== null && player.onOffDelta !== undefined) {
-    const rawAdj = player.onOffDelta * 0.0004; // 0.04% per NETRTG point
+    const rawAdj = player.onOffDelta * 0.0004;
     const cappedAdj = Math.max(-0.025, Math.min(0.025, rawAdj));
     onOffAdj = +(1 + cappedAdj).toFixed(4);
   }
 
   // ── TS% PLAYOFF vs RS ADJUSTMENT ──────────────────────────────────────────
-  // Source: NBA.com Players > Advanced, Playoffs vs Regular Season (screenshots)
-  // When player's PO TS% differs from RS TS%, their playoff efficiency is
-  // running above/below their regular season baseline.
-  // Adjustment: (PO_TS / RS_TS) - 1, capped at ±4%
-  // Applied to scoring props only. Null on either = no adjustment.
+  // Source: NBA.com Players Advanced Playoffs vs RS. Cap ±4%.
   let tsAdj = 1.0;
-  if (isScoringProp && po.ts !== null && po.ts !== undefined && rs.ts !== null && rs.ts !== undefined && rs.ts > 0) {
+  if (isScoringProp && po.ts > 0 && rs.ts > 0) {
     const rawTS = (po.ts / rs.ts) - 1.0;
-    const cappedTS = Math.max(-0.04, Math.min(0.04, rawTS));
-    tsAdj = +(1 + cappedTS).toFixed(4);
+    tsAdj = +(1 + Math.max(-0.04, Math.min(0.04, rawTS))).toFixed(4);
+  }
+
+  // ── OPPONENT 3-POINT DEFENSE ADJUSTMENT ────────────────────────────────────
+  // Source: NBA.com LeagueDashPtTeamDefend Playoffs, category="3 Pointers"
+  // fg3VsAvg = PCT_PLUSMINUS (decimal): how much better/worse opponents shoot 3s
+  //   vs league avg against this team. Negative = strong 3pt D (reduce projection).
+  // Only applied to three_pointers prop. Cap ±8%.
+  let fg3DefAdj = 1.0;
+  if (prop.id === "three_pointers" && teamDef?.[oppTeam]?.fg3VsAvg !== undefined) {
+    const pctVsAvg = teamDef[oppTeam].fg3VsAvg; // e.g. -0.030 decimal
+    fg3DefAdj = +Math.max(0.92, Math.min(1.08, 1 + pctVsAvg)).toFixed(4);
   }
 
   // ── VS OPPONENT ADJUSTMENT ────────────────────────────────────────────────
@@ -406,12 +421,11 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
   let vsOppAdj = 1.0;
   if (isScoringProp && propVsOpp !== null && propVsOpp > 0 && propPO > 0 && vsOpponent?.gp >= 2) {
     const rawAdj = (propVsOpp / propPO) - 1.0;
-    const cappedAdj = Math.max(-0.08, Math.min(0.08, rawAdj));
-    vsOppAdj = +(1 + cappedAdj).toFixed(4);
+    vsOppAdj = +(1 + Math.max(-0.08, Math.min(0.08, rawAdj))).toFixed(4);
   }
 
-  const adjustedProjection = +(blended * paceAdj * defAdj * homeAdj * restAdj * onOffAdj * tsAdj * vsOppAdj).toFixed(1);
-  return { propRS, propPO, propRecent, propVsOpp, blended, gamePace, paceAdj, defAdj, homeAdj, restAdj, onOffAdj, tsAdj, vsOppAdj, isHome, restDays, adjustedProjection };
+  const adjustedProjection = +(blended * paceAdj * defAdj * homeAdj * restAdj * onOffAdj * tsAdj * fg3DefAdj * vsOppAdj).toFixed(1);
+  return { propRS, propPO, propRecent, propVsOpp, blended, gamePace, paceAdj, defAdj, homeAdj, restAdj, onOffAdj, tsAdj, fg3DefAdj, vsOppAdj, isHome, restDays, adjustedProjection };
 }
 
 const S = `
@@ -521,6 +535,8 @@ export default function NBAPropsModel() {
   const [livePlayerDB, setLivePlayerDB] = useState(null); // null = loading, false = failed, object = loaded
   const [liveTeamData, setLiveTeamData] = useState(null); // null = loading, false = failed, object = loaded
   const [nbaApiStatus, setNbaApiStatus] = useState("loading"); // "loading" | "live" | "offline"
+  const [homeAwaySplits, setHomeAwaySplits] = useState(null); // per-player home/road PO splits
+  const [teamDefense, setTeamDefense] = useState(null);       // per-team zone defense (3pt, rim)
   const [recentStats, setRecentStats] = useState(null);
   const [vsOpponentStats, setVsOpponentStats] = useState(null);
   const [pname, setPname] = useState("");
@@ -598,20 +614,28 @@ Include only players with confirmed status on today's official report. Status me
     fetchInjuries();
   }, []);
 
-  // ── Fetch real player stats + team pace/efficiency from local nba_api server ──
-  // Run server.py first: pip install flask flask-cors nba_api && python server.py
+  // ── Fetch all NBA.com data from Render backend (all endpoints cached server-side) ──
   useEffect(() => {
     const fetchNBAData = async () => {
       try {
-        const [playersResp, teamsResp] = await Promise.all([
+        const [playersResp, teamsResp, splitsResp, teamDefResp] = await Promise.all([
           fetch(`${API_BASE}/players`),
           fetch(`${API_BASE}/teams`),
+          fetch(`${API_BASE}/splits`),
+          fetch(`${API_BASE}/team-defense`),
         ]);
+        // Players + Teams are required; splits + team-defense are optional enhancements
         if (!playersResp.ok || !teamsResp.ok) throw new Error("server error");
-        const playersData = await playersResp.json();
-        const teamsData = await teamsResp.json();
+        const [playersData, teamsData, splitsData, teamDefData] = await Promise.all([
+          playersResp.json(),
+          teamsResp.json(),
+          splitsResp.ok ? splitsResp.json() : Promise.resolve(null),
+          teamDefResp.ok ? teamDefResp.json() : Promise.resolve(null),
+        ]);
         if (playersData.success) setLivePlayerDB(playersData.players);
         if (teamsData.success) setLiveTeamData(teamsData.teams);
+        if (splitsData?.success) setHomeAwaySplits(splitsData.splits);
+        if (teamDefData?.success) setTeamDefense(teamDefData.teamDefense);
         setNbaApiStatus("live");
       } catch {
         setNbaApiStatus("offline");
@@ -708,14 +732,15 @@ Include only players with confirmed status on today's official report. Status me
     if (!(game[pt] || []).includes(player.key)) { setErr(`${dn(player.key)} (${pt}) is not in this game (${game.away} @ ${game.home}).`); return; }
     const isHome = pt === game.home;
     const restDays = game.restDays?.[pt] ?? null;
-    const proj = computeProjection(prop, player, pt, ot, isHome, restDays, effectiveTeamData, recentStats, vsOpponentStats);
+    const playerSplits = homeAwaySplits?.[pkey] ?? null;
+    const proj = computeProjection(prop, player, pt, ot, isHome, restDays, effectiveTeamData, recentStats, vsOpponentStats, playerSplits, teamDefense);
     const edge = +(proj.adjustedProjection - l).toFixed(2);
     const verdict = Math.abs(edge) < 0.3 ? "push" : edge > 0 ? "over" : "under";
     const abs = Math.abs(edge);
     const conf = abs >= 3 && player.po.gp >= 4 ? "HIGH" : abs >= 1.5 ? "MEDIUM" : "LOW";
     const inj = INJURIES[player.key] || null;
     setResult({ player, prop, game, pt, ot, l, proj, verdict, edge, conf, ptd: effectiveTeamData[pt], otd: effectiveTeamData[ot], isHome, restDays });
-  }, [canRun, game, db, prop, line, effectiveTeamData, recentStats, vsOpponentStats]);
+  }, [canRun, game, db, prop, line, pkey, effectiveTeamData, recentStats, vsOpponentStats, homeAwaySplits, teamDefense]);
 
   const exportToExcel = useCallback(() => {
     if (!result) return;
@@ -956,7 +981,7 @@ Include only players with confirmed status on today's official report. Status me
                   <span className={`mv ${proj.defAdj > 1.005 ? "pos" : proj.defAdj < 0.995 ? "neg" : ""}`}>×{proj.defAdj.toFixed(3)} ({proj.defAdj > 1.001 ? "+" : ""}{((proj.defAdj - 1) * 100).toFixed(1)}%)</span>
                 </div>}
                 {proj.homeAdj !== 1.0 && <div className="mr">
-                  <span className="mk">Home court ({isHome ? "HOME" : "ROAD"} · NBAsuffer 2025-26 RS home/away splits)</span>
+                  <span className="mk">Home court ({isHome ? "HOME" : "ROAD"} · {homeAwaySplits?.[pkey]?.home?.gp >= 2 && homeAwaySplits?.[pkey]?.road?.gp >= 2 ? "NBA.com PO splits · per-player" : "flat ±3% fallback"})</span>
                   <span className={`mv ${proj.homeAdj > 1.005 ? "pos" : proj.homeAdj < 0.995 ? "neg" : ""}`}>×{proj.homeAdj.toFixed(4)} ({proj.homeAdj > 1.001 ? "+" : ""}{((proj.homeAdj - 1) * 100).toFixed(2)}%)</span>
                 </div>}
                 {proj.restAdj !== 1.0 && <div className="mr">
@@ -971,6 +996,10 @@ Include only players with confirmed status on today's official report. Status me
                   <span className="mk">TS% shift (RS {player.rs.ts}% → PO {player.po.ts}% · NBA.com Players Advanced)</span>
                   <span className={`mv ${proj.tsAdj > 1.001 ? "pos" : proj.tsAdj < 0.999 ? "neg" : ""}`}>×{proj.tsAdj.toFixed(4)} ({proj.tsAdj > 1.001 ? "+" : ""}{((proj.tsAdj - 1) * 100).toFixed(2)}%)</span>
                 </div>}
+                {proj.fg3DefAdj !== 1.0 && <div className="mr">
+                  <span className="mk">{ot} 3pt defense ({teamDefense?.[ot]?.fg3VsAvg >= 0 ? "+" : ""}{teamDefense?.[ot] ? (teamDefense[ot].fg3VsAvg * 100).toFixed(1) : "?"}% vs lg avg · NBA.com PtTeamDefend PO)</span>
+                  <span className={`mv ${proj.fg3DefAdj > 1.005 ? "pos" : proj.fg3DefAdj < 0.995 ? "neg" : ""}`}>×{proj.fg3DefAdj.toFixed(4)} ({proj.fg3DefAdj > 1.001 ? "+" : ""}{((proj.fg3DefAdj - 1) * 100).toFixed(2)}%)</span>
+                </div>}
                 {proj.vsOppAdj !== 1.0 && <div className="mr">
                   <span className="mk">vs {ot} historical ({vsOpponentStats?.gp}g · {vsOpponentStats?.source} · nba_api game logs)</span>
                   <span className={`mv ${proj.vsOppAdj > 1.001 ? "pos" : proj.vsOppAdj < 0.999 ? "neg" : ""}`}>×{proj.vsOppAdj.toFixed(4)} ({proj.vsOppAdj > 1.001 ? "+" : ""}{((proj.vsOppAdj - 1) * 100).toFixed(2)}%)</span>
@@ -980,7 +1009,7 @@ Include only players with confirmed status on today's official report. Status me
                   <span className="mv acc">{proj.adjustedProjection} {pr.label3}</span>
                 </div>
                 <div className="mf">
-                  {proj.blended} × {proj.paceAdj.toFixed(4)} (pace){proj.defAdj !== 1.0 ? ` × ${proj.defAdj.toFixed(4)} (dEFF)` : ""}{proj.homeAdj !== 1.0 ? ` × ${proj.homeAdj.toFixed(4)} (${isHome ? "home" : "road"})` : ""}{proj.restAdj !== 1.0 ? ` × ${proj.restAdj.toFixed(4)} (rest)` : ""}{proj.onOffAdj !== 1.0 ? ` × ${proj.onOffAdj.toFixed(4)} (on/off)` : ""}{proj.tsAdj !== 1.0 ? ` × ${proj.tsAdj.toFixed(4)} (TS%)` : ""}= {proj.adjustedProjection}
+                  {proj.blended} × {proj.paceAdj.toFixed(4)} (pace){proj.defAdj !== 1.0 ? ` × ${proj.defAdj.toFixed(4)} (dEFF)` : ""}{proj.homeAdj !== 1.0 ? ` × ${proj.homeAdj.toFixed(4)} (${isHome ? "home" : "road"})` : ""}{proj.restAdj !== 1.0 ? ` × ${proj.restAdj.toFixed(4)} (rest)` : ""}{proj.onOffAdj !== 1.0 ? ` × ${proj.onOffAdj.toFixed(4)} (on/off)` : ""}{proj.tsAdj !== 1.0 ? ` × ${proj.tsAdj.toFixed(4)} (TS%)` : ""}{proj.fg3DefAdj !== 1.0 ? ` × ${proj.fg3DefAdj.toFixed(4)} (3pt def)` : ""}{proj.vsOppAdj !== 1.0 ? ` × ${proj.vsOppAdj.toFixed(4)} (vs opp)` : ""} = {proj.adjustedProjection}
                 </div>
               </div>
 
