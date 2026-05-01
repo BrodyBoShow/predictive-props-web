@@ -705,57 +705,77 @@ Include only players with confirmed status on today's official report. Status me
   // we wait 20s and retry up to 4 times before falling back to static data.
   useEffect(() => {
     let cancelled = false;
-    // fetchT: fetch with a manual 15s timeout using AbortController.
-    // Works in all modern browsers (no AbortSignal.timeout needed).
-    const fetchT = (url, ms = 15000) => {
+    // fetchT: fetch with manual AbortController timeout — works all browsers.
+    const fetchT = (url, ms = 30000) => {
       const ctrl = new AbortController();
       const tid  = setTimeout(() => ctrl.abort(), ms);
       return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(tid));
     };
-    const tryFetch = async (attempt = 0) => {
+
+    // Phase 1 — poll /api/ready every 8s until server warmup is done.
+    // This is cheap (no data transfer) and avoids hammering all 9 endpoints.
+    // Render cold start + NBA API warmup ≈ 2-4 min → 35 polls × 8s = 280s max.
+    const waitForReady = async () => {
+      for (let i = 0; i < 35; i++) {
+        if (cancelled) return false;
+        try {
+          const resp = await fetchT(`${API_BASE}/ready`, 8000);
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.ready) return true;
+          }
+        } catch {}
+        if (cancelled) return false;
+        setNbaApiStatus("warming");
+        await new Promise(res => setTimeout(res, 8000));
+      }
+      return false;
+    };
+
+    // Phase 2 — server is ready, fetch all 9 endpoints at once.
+    const fetchAllData = async () => {
+      const [playersResp, teamsResp, splitsResp, teamDefResp, scoringResp, clutchResp, hustleResp, trackingResp, matchupResp] = await Promise.all([
+        fetchT(`${API_BASE}/players`),
+        fetchT(`${API_BASE}/teams`),
+        fetchT(`${API_BASE}/splits`),
+        fetchT(`${API_BASE}/team-defense`),
+        fetchT(`${API_BASE}/scoring`),
+        fetchT(`${API_BASE}/clutch`),
+        fetchT(`${API_BASE}/hustle`),
+        fetchT(`${API_BASE}/tracking`),
+        fetchT(`${API_BASE}/matchup-delta`),
+      ]);
+      if (!playersResp.ok || !teamsResp.ok) throw new Error(`server ${playersResp.status}`);
+      const safe = r => (r.ok ? r.json() : Promise.resolve(null));
+      const [playersData, teamsData, splitsData, teamDefData, scoringData, clutchData, hustleData, trackingData, matchupData] = await Promise.all([
+        playersResp.json(), teamsResp.json(),
+        safe(splitsResp), safe(teamDefResp), safe(scoringResp), safe(clutchResp), safe(hustleResp),
+        safe(trackingResp), safe(matchupResp),
+      ]);
       if (cancelled) return;
+      if (playersData.success) setLivePlayerDB(playersData.players);
+      if (teamsData.success)   setLiveTeamData(teamsData.teams);
+      if (splitsData?.success)   setHomeAwaySplits(splitsData.splits);
+      if (teamDefData?.success)  setTeamDefense(teamDefData.teamDefense);
+      if (scoringData?.success)  setScoringBreakdown(scoringData.scoring);
+      if (clutchData?.success)   setClutchStats(clutchData.clutch);
+      if (hustleData?.success)   setHustleStats(hustleData.hustle);
+      if (trackingData?.success) setTrackingStats(trackingData.tracking);
+      if (matchupData?.success)  setMatchupDelta(matchupData.matchupDelta);
+      setNbaApiStatus("live");
+    };
+
+    const run = async () => {
+      const ready = await waitForReady();
+      if (cancelled) return;
+      if (!ready) { setNbaApiStatus("offline"); return; }
       try {
-        const [playersResp, teamsResp, splitsResp, teamDefResp, scoringResp, clutchResp, hustleResp, trackingResp, matchupResp] = await Promise.all([
-          fetchT(`${API_BASE}/players`),
-          fetchT(`${API_BASE}/teams`),
-          fetchT(`${API_BASE}/splits`),
-          fetchT(`${API_BASE}/team-defense`),
-          fetchT(`${API_BASE}/scoring`),
-          fetchT(`${API_BASE}/clutch`),
-          fetchT(`${API_BASE}/hustle`),
-          fetchT(`${API_BASE}/tracking`),
-          fetchT(`${API_BASE}/matchup-delta`),
-        ]);
-        // 503 = server warming (fast response) → retry. Any non-OK = retry.
-        if (!playersResp.ok || !teamsResp.ok) throw new Error(`server ${playersResp.status}`);
-        const safe = r => (r.ok ? r.json() : Promise.resolve(null));
-        const [playersData, teamsData, splitsData, teamDefData, scoringData, clutchData, hustleData, trackingData, matchupData] = await Promise.all([
-          playersResp.json(), teamsResp.json(),
-          safe(splitsResp), safe(teamDefResp), safe(scoringResp), safe(clutchResp), safe(hustleResp),
-          safe(trackingResp), safe(matchupResp),
-        ]);
-        if (cancelled) return;
-        if (playersData.success) setLivePlayerDB(playersData.players);
-        if (teamsData.success)   setLiveTeamData(teamsData.teams);
-        if (splitsData?.success)   setHomeAwaySplits(splitsData.splits);
-        if (teamDefData?.success)  setTeamDefense(teamDefData.teamDefense);
-        if (scoringData?.success)  setScoringBreakdown(scoringData.scoring);
-        if (clutchData?.success)   setClutchStats(clutchData.clutch);
-        if (hustleData?.success)   setHustleStats(hustleData.hustle);
-        if (trackingData?.success) setTrackingStats(trackingData.tracking);
-        if (matchupData?.success)  setMatchupDelta(matchupData.matchupDelta);
-        setNbaApiStatus("live");
+        await fetchAllData();
       } catch {
-        if (cancelled) return;
-        if (attempt < 8) {
-          setNbaApiStatus("warming");
-          setTimeout(() => tryFetch(attempt + 1), 20000);
-        } else {
-          setNbaApiStatus("offline");
-        }
+        if (!cancelled) setNbaApiStatus("offline");
       }
     };
-    tryFetch();
+    run();
     return () => { cancelled = true; };
   }, []);
 
