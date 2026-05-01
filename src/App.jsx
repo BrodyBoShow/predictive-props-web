@@ -311,6 +311,26 @@ function lookupPlayer(name, db = PLAYER_DB) {
 
 function dn(k) { return k.split(" ").map(w => w[0].toUpperCase() + w.slice(1)).join(" "); }
 
+function etToLocal(timeStr) {
+  const timeMatch = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!timeMatch) return timeStr;
+  let h = parseInt(timeMatch[1]);
+  const m = parseInt(timeMatch[2]);
+  if (timeMatch[3].toUpperCase() === "PM" && h !== 12) h += 12;
+  if (timeMatch[3].toUpperCase() === "AM" && h === 12) h = 0;
+  const MONTHS = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
+  const dateMatch = timeStr.match(/(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[,.]?\s+(\w{3})\s+(\d+)/i);
+  const now = new Date();
+  const month = dateMatch ? (MONTHS[dateMatch[1]] ?? now.getMonth()) : now.getMonth();
+  const day = dateMatch ? parseInt(dateMatch[2]) : now.getDate();
+  // EDT = UTC-4 in May/June playoffs
+  const utc = new Date(Date.UTC(now.getFullYear(), month, day, h + 4, m));
+  const isToday = utc.toLocaleDateString() === now.toLocaleDateString();
+  const timePart = utc.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+  if (isToday) return timePart;
+  return utc.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }) + ", " + timePart;
+}
+
 function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, teamData = TEAM_DATA, recent = null, vsOpponent = null) {
   const rs = player.rs, po = player.po;
   const propRS = prop.statKey(rs), propPO = prop.statKey(po);
@@ -793,7 +813,7 @@ Include only players with confirmed status on today's official report. Status me
               const g = GAME_ROSTERS[id]; return (
                 <div key={id} className={`grow ${gid === id ? "sel" : ""}`} onClick={() => selGame(id)}>
                   <div><div className="gteams">{g.away}<span className="gvs">@</span>{g.home}</div><div className="gmeta">{g.awayTeam} @ {g.homeTeam} · {g.title} · {g.series}</div></div>
-                  <div className="gtime">{g.time}</div>
+                  <div className="gtime">{etToLocal(g.time)}</div>
                 </div>
               );
             })}</div>
@@ -802,7 +822,7 @@ Include only players with confirmed status on today's official report. Status me
               const g = GAME_ROSTERS[id]; return (
                 <div key={id} className={`grow ${gid === id ? "sel" : ""}`} onClick={() => selGame(id)}>
                   <div><div className="gteams">{g.away}<span className="gvs">@</span>{g.home}</div><div className="gmeta">{g.awayTeam} @ {g.homeTeam} · {g.title} · {g.series}</div></div>
-                  <div className="gtime up">{g.time}</div>
+                  <div className="gtime up">{etToLocal(g.time)}</div>
                 </div>
               );
             })}</div>
