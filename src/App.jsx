@@ -67,7 +67,7 @@ const PLAYER_DB = {
   "jamal shead": E("TOR", 1641733, "G", P(6.6, 2.8, 5.4, 1.0, 0.2, 1.8, 36.8, 32.4, 74.4, 20.4, 62), P(5.0, 2.5, 4.5, 1.0, 0.0, 1.5, 34.0, 30.0, 72.0, 18.0, 4)),
   "jakobe walter": E("TOR", 1641718, "G", P(7.5, 2.6, 1.8, 1.0, 0.2, 1.0, 44.1, 40.9, 78.4, 18.4, 55), P(6.0, 2.0, 1.5, 0.8, 0.0, 0.8, 40.0, 38.0, 76.0, 16.0, 4)),
   "collin murray-boyles": E("TOR", 1642374, "F", P(8.5, 5.0, 1.8, 0.6, 0.9, 1.2, 57.9, 34.0, 65.1, 18.8, 56), P(6.5, 4.5, 1.5, 0.5, 0.8, 1.0, 54.0, 30.0, 62.0, 16.0, 4)),
-  "lebron james": E("LAL", 2544, "F", P(26.8, 7.8, 8.4, 1.2, 0.6, 3.6, 51.3, 38.4, 75.2, 34.8, 61), P(22.5, 8.0, 9.5, 1.0, 0.5, 5.5, 44.8, 27.8, 72.0, 38.5, 4)),
+  "lebron james": E("LAL", 2544, "F", P(20.9, 6.1, 7.2, 1.2, 0.6, 3.0, 51.5, 31.7, 73.7, 33.2, 60), P(22.2, 7.2, 8.4, 1.6, 0.4, 4.6, 44.2, 28.0, 73.7, 39.0, 5)),
   "anthony davis": E("DAL", 203076, "C", P(28.4, 12.1, 3.4, 1.2, 2.3, 2.4, 55.8, 22.4, 78.6, 34.4, 58), P(26.0, 12.5, 3.0, 1.3, 2.5, 2.5, 54.2, 20.0, 76.0, 38.0, 4)),
   "austin reaves": E("LAL", 1630559, "G", P(23.3, 4.7, 5.5, 1.4, 0.4, 2.2, 49.0, 36.0, 86.4, 32.4, 51, null, null), P(22.0, 4.0, 6.0, 0.0, 1.0, 3.0, 25.0, 25.0, 92.3, 33.7, 1, 34.5, 50.6), null),
   "rui hachimura": E("LAL", 1629060, "F", P(12.8, 4.8, 1.4, 0.6, 0.4, 1.2, 50.4, 36.8, 72.4, 24.4, 62, null, null), P(14.8, 3.6, 1.0, 1.2, 0.6, 1.0, 54.5, 54.5, 50.0, 38.8, 5, 15.0, 65.2), null),
@@ -920,7 +920,7 @@ Include only players with confirmed status on today's official report. Status me
                 <div>
                   <div className="rpn">{dname}</div>
                   <div className="rpm">{pt} vs {ot} · {g.title} · {pr.label}</div>
-                  <div className="rsrc">SOURCES: VERIFIED DB · NBASTUFFER.COM · SPORTRADAR</div>
+                  <div className="rsrc">SOURCES: {nbaApiStatus === "live" ? "✓ NBA.COM LIVE" : "◎ STATIC DB"} · NBASTUFFER.COM · SPORTRADAR</div>
                 </div>
                 <div className={`vb ${verdict}`}>
                   <div className={`vt ${verdict}`}>{verdict.toUpperCase()}</div>
