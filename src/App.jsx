@@ -73,7 +73,7 @@ const PLAYER_DB = {
   "rui hachimura": E("LAL", 1629060, "F", P(12.8, 4.8, 1.4, 0.6, 0.4, 1.2, 50.4, 36.8, 72.4, 24.4, 62, null, null), P(14.8, 3.6, 1.0, 1.2, 0.6, 1.0, 54.5, 54.5, 50.0, 38.8, 5, 15.0, 65.2), null),
   "max christie": E("LAL", 1631108, "G-F", P(8.4, 3.2, 1.8, 1.0, 0.4, 0.8, 44.8, 38.4, 78.4, 22.4, 64), P(7.0, 3.0, 1.5, 0.8, 0.3, 0.8, 42.0, 36.0, 76.0, 22.0, 4)),
   "amen thompson": E("HOU", 1641706, "G-F", P(17.2, 7.4, 5.8, 1.8, 0.8, 2.4, 51.2, 24.4, 68.4, 30.8, 67, null, null), P(19.4, 6.8, 6.2, 2.4, 0.8, 2.6, 51.6, 25.0, 71.4, 44.0, 5, 20.0, 55.5), null),
-  "alperen sengun": E("HOU", 1631094, "C", P(22.8, 10.3, 5.8, 1.4, 1.2, 2.8, 56.4, 28.4, 72.4, 34.4, 67, null, null), P(21.0, 10.0, 5.4, 2.2, 1.2, 2.8, 50.6, 12.5, 68.8, 38.9, 5, 25.9, 51.9), null),
+  "alperen sengun": E("HOU", 1630578, "C", P(22.8, 10.3, 5.8, 1.4, 1.2, 2.8, 56.4, 28.4, 72.4, 34.4, 67, null, null), P(21.0, 10.0, 5.4, 2.2, 1.2, 2.8, 50.6, 12.5, 68.8, 38.9, 5, 25.9, 51.9), null),
   "jabari smith jr": E("HOU", 1631095, "F", P(16.4, 7.2, 2.4, 1.0, 1.2, 1.8, 46.8, 36.4, 74.4, 30.4, 65, null, null), P(19.2, 7.8, 1.6, 1.2, 0.6, 1.0, 41.4, 40.0, 78.3, 41.9, 5, 18.6, 57.1), null),
   "reed sheppard": E("HOU", 1641717, "G", P(9.8, 2.8, 3.4, 1.2, 0.2, 1.4, 44.8, 40.4, 84.4, 24.4, 61, null, null), P(12.6, 1.2, 5.4, 2.2, 0.6, 2.2, 32.0, 34.1, 66.7, 31.2, 5, 22.8, 44.8), null),
   "tari eason": E("HOU", 1631215, "F", P(11.8, 6.4, 1.8, 1.8, 0.8, 1.4, 48.4, 34.8, 74.4, 26.4, 64, null, null), P(13.8, 7.0, 1.6, 2.4, 0.6, 1.0, 64.3, 34.8, 81.8, 31.6, 5, 16.8, 61.8), null),
@@ -81,7 +81,7 @@ const PLAYER_DB = {
   "dorian finney-smith": E("HOU", 1629640, "F", P(8.4, 4.2, 1.8, 1.2, 0.4, 0.8, 42.4, 36.8, 74.4, 24.4, 62), P(7.0, 4.5, 1.5, 1.0, 0.3, 0.8, 40.0, 34.0, 72.0, 24.0, 4)),
   "steven adams": E("HOU", 203500, "C", P(5.4, 8.8, 1.8, 0.6, 0.6, 1.4, 58.4, 0.0, 44.4, 18.4, 52), P(4.0, 7.5, 1.5, 0.5, 0.5, 1.0, 55.0, 0.0, 42.0, 16.0, 4)),
   "clint capela": E("HOU", 203991, "C", P(8.8, 9.4, 0.8, 0.6, 1.2, 1.2, 62.4, 0.0, 52.4, 18.8, 48), P(6.0, 7.0, 0.5, 0.5, 0.8, 0.8, 60.0, 0.0, 50.0, 14.0, 4)),
-  "jalen brunson": E("NYK", 1628384, "G", P(27.4, 3.4, 7.8, 0.9, 0.2, 3.2, 47.4, 38.8, 84.2, 33.8, 65), P(25.0, 4.0, 7.5, 0.8, 0.2, 3.0, 45.8, 36.4, 84.0, 37.0, 5)),
+  "jalen brunson": E("NYK", 1628995, "G", P(27.4, 3.4, 7.8, 0.9, 0.2, 3.2, 47.4, 38.8, 84.2, 33.8, 65), P(25.0, 4.0, 7.5, 0.8, 0.2, 3.0, 45.8, 36.4, 84.0, 37.0, 5)),
   "karl-anthony towns": E("NYK", 1626157, "C", P(24.8, 13.8, 3.4, 0.8, 1.2, 2.8, 49.2, 40.8, 83.4, 33.4, 66), P(20.0, 10.0, 10.0, 2.0, 0.5, 2.0, 60.0, 50.0, 100.0, 36.0, 5)),
   "og anunoby": E("NYK", 1628385, "F", P(16.8, 4.8, 2.4, 1.8, 0.8, 1.4, 48.4, 36.8, 78.4, 32.4, 66), P(15.0, 5.0, 2.5, 2.0, 0.8, 1.5, 46.0, 34.0, 76.0, 34.0, 5)),
   "mikal bridges": E("NYK", 1628969, "F", P(14.8, 4.2, 3.4, 1.2, 0.4, 1.4, 44.8, 36.4, 78.4, 30.4, 68), P(13.5, 4.0, 3.5, 1.0, 0.3, 1.5, 43.0, 34.0, 76.0, 32.0, 5)),
@@ -217,7 +217,7 @@ const INJURIES = {
 // Series records from playoff_series endpoint (record = wins)
 // Rosters verified against ESPN, NBA.com, Basketball-Reference Apr 30 2026
 const GAME_ROSTERS = {
-  // ── TONIGHT Apr 30 ─────────────────────────────────────────────────────────
+  // ── COMPLETED Apr 30 (archived — not in TODAYS_GAMES) ─────────────────────
   // ATL @ NYK — Game 6 (NYK leads 3-2, IN PROGRESS: NYK 46 ATL 15 Q2)
   // ATL: Murray GONE (traded SUM24), De'Andre Hunter GONE (traded)
   //      NAW signed 4yr/$62M from MIN, Risacher rookie
@@ -282,8 +282,8 @@ const GAME_ROSTERS = {
     HOU: ["amen thompson", "alperen sengun", "jabari smith jr", "reed sheppard", "tari eason", "kevin durant", "steven adams", "clint capela"]
   },
 };
-const TODAYS_GAMES = ["e16d4c61", "7d05403c", "a97cb053"]; // Apr 30: ATL@NYK, BOS@PHI, DEN@MIN
-const UPCOMING_GAMES = ["0f33197a", "560d20d6", "2b36e831"]; // May 1: ORL@DET, CLE@TOR, HOU@LAL
+const TODAYS_GAMES = ["0f33197a", "560d20d6", "2b36e831"]; // May 1: DET@ORL, CLE@TOR, HOU@LAL
+const UPCOMING_GAMES = []; // No confirmed upcoming games yet
 
 const PROPS = [
   { id: "points", label: "Points", icon: "🏀", short: "PTS", statKey: p => p.ppg, label3: "PPG" },
@@ -791,6 +791,12 @@ Include only players with confirmed status on today's official report. Status me
     URL.revokeObjectURL(url);
   }, [result]);
 
+  // ── Dynamic date labels — always reflects current date, no hardcoded strings ──
+  const _todayDate = new Date();
+  const _tomorrowDate = new Date(_todayDate); _tomorrowDate.setDate(_todayDate.getDate() + 1);
+  const todayStr = liveSched?.today || _todayDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const upcomingStr = liveSched?.upcomingLabel || _tomorrowDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
   return (
     <>
       <style>{S}</style>
@@ -799,7 +805,7 @@ Include only players with confirmed status on today's official report. Status me
           <div className="htag">NBA Prop Engine · 2025-26 Playoffs</div>
           <h1>PROP<br /><span>EDGE</span></h1>
           <div className="dbanner">
-            ALL DATA VERIFIED · ZERO AI GUESSING · {liveSched?.today?.toUpperCase() || "APR 30 2026"}
+            ALL DATA VERIFIED · ZERO AI GUESSING · {todayStr.toUpperCase()}
             {" "}{liveInjuries === null ? "· ⟳ LOADING INJURIES..." : liveInjuries === false ? "· INJURIES OFFLINE" : liveInjuries?.updated ? `· ✓ INJURIES LIVE (${liveInjuries.updated})` : ""}
             {" "}{nbaApiStatus === "loading" ? "· ⟳ NBA.COM..." : nbaApiStatus === "live" ? "· ✓ NBA.COM LIVE" : "· ◎ STATIC STATS"}
           </div>
@@ -808,7 +814,7 @@ Include only players with confirmed status on today's official report. Status me
         <div className="sec">
           <div className="slabel">01 — Select Game</div>
           <div className="card">
-            <div className="ggl">● TONIGHT — {liveSched?.today || "Apr 30 2026"}</div>
+            <div className="ggl">● TONIGHT — {todayStr}</div>
             <div className="glist">{TODAYS_GAMES.map(id => {
               const g = GAME_ROSTERS[id]; return (
                 <div key={id} className={`grow ${gid === id ? "sel" : ""}`} onClick={() => selGame(id)}>
@@ -817,7 +823,7 @@ Include only players with confirmed status on today's official report. Status me
                 </div>
               );
             })}</div>
-            <div className="ggl up">◎ UPCOMING — {liveSched?.upcomingLabel || "May 1"}</div>
+            <div className="ggl up">◎ UPCOMING — {upcomingStr}</div>
             <div className="glist">{UPCOMING_GAMES.map(id => {
               const g = GAME_ROSTERS[id]; return (
                 <div key={id} className={`grow ${gid === id ? "sel" : ""}`} onClick={() => selGame(id)}>
