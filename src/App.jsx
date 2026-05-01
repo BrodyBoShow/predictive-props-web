@@ -335,7 +335,11 @@ function etToLocal(timeStr) {
 // scoring = {pctPts3pt, pctPtsPaint, ...} from /api/scoring (LeagueDashPlayerStats Scoring)
 // clutch  = {ppg, gp, ...} from /api/clutch (LeagueDashPlayerClutch Playoffs)
 // injuryAdj = multiplier computed from teammate OUT status + NBA.com USG% redistribution
-function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, teamData = TEAM_DATA, recent = null, vsOpponent = null, playerSplits = null, teamDef = null, scoring = null, clutch = null, injuryAdj = 1.0) {
+// tracking = {potentialAst, astConvRate, rebChancePct, ...} from /api/tracking (LeagueDashPtStats Passing+Rebounding)
+// matchupDelta = full dict keyed by team abbr from /api/matchup-delta (L5-game dEFF vs season dEFF)
+const LEAGUE_AVG_PACE = 100.0;   // NBA 2025-26 RS league average pace
+const LEAGUE_AVG_AST_CONV = 0.30; // ~30% of potential assists → actual assists (NBA PO baseline)
+function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, teamData = TEAM_DATA, recent = null, vsOpponent = null, playerSplits = null, teamDef = null, scoring = null, clutch = null, injuryAdj = 1.0, tracking = null, matchupDelta = null) {
   const rs = player.rs, po = player.po;
   const propRS = prop.statKey(rs), propPO = prop.statKey(po);
   const propRecent = recent ? +prop.statKey(recent).toFixed(2) : null;
@@ -465,8 +469,44 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
   // Cap: +25% max — prevents single-player spikes when a star is unexpectedly OUT.
   const injAdj = Math.max(1.0, Math.min(1.25, injuryAdj)); // floor at 1.0 (never reduces)
 
-  const adjustedProjection = +(blended * paceAdj * defAdj * homeAdj * restAdj * onOffAdj * tsAdj * fg3DefAdj * clutchAdj * injAdj * vsOppAdj).toFixed(1);
-  return { propRS, propPO, propRecent, propVsOpp, blended, gamePace, paceAdj, defAdj, homeAdj, restAdj, onOffAdj, tsAdj, fg3DefAdj, clutchAdj, injAdj, vsOppAdj, isHome, restDays, adjustedProjection };
+  // ── MATCHUP DELTA — rolling L5 dEFF vs season dEFF ────────────────────────
+  // Source: NBA.com LeagueDashTeamStats Playoffs, last_n_games=5 vs full season
+  // dEFF_delta = L5_dEFF − season_dEFF
+  //   Positive (e.g. +3.2) = opponent's defense has weakened recently → boost projection
+  //   Negative (e.g. -2.8) = opponent has tightened up defensively recently → reduce projection
+  // Formula: season_dEFF / L5_dEFF (inverted so better defense = lower adj)
+  // Cap ±6%. Applied to scoring props when at least 3 L5 games tracked.
+  let matchupDeltaAdj = 1.0;
+  const otDelta = matchupDelta?.[oppTeam];
+  if (isScoringProp && otDelta && otDelta.season_dEFF > 0 && otDelta.l5_dEFF > 0 && otDelta.gp >= 3) {
+    // If L5 dEFF > season dEFF: defense softened → project higher (season_dEFF/L5_dEFF > 1)
+    // If L5 dEFF < season dEFF: defense tightened → project lower (season_dEFF/L5_dEFF < 1)
+    const rawDelta = otDelta.season_dEFF / otDelta.l5_dEFF;
+    matchupDeltaAdj = +Math.max(0.94, Math.min(1.06, rawDelta)).toFixed(4);
+  }
+
+  // ── ASSIST CONVERSION REGRESSION ──────────────────────────────────────────
+  // Source: NBA.com LeagueDashPtStats Playoffs, Passing measure type
+  // AST conversion rate = actual PO assists / potential assists per game.
+  // If a player's current conversion rate deviates ≥15% from the ~30% PO league
+  // baseline (i.e., they're on an unsustainable hot/cold streak), regress the
+  // projection 30% toward the mean — which corrects for luck in assist opportunities.
+  // Only applies to assists prop. Requires ≥3 GP of PO tracking data.
+  let astConvAdj = 1.0;
+  if (prop.id === "assists" && tracking && tracking.gp >= 3 && tracking.potentialAst > 0.5) {
+    const convRate = tracking.astConvRate ?? LEAGUE_AVG_AST_CONV;
+    const deviation = Math.abs(convRate - LEAGUE_AVG_AST_CONV) / LEAGUE_AVG_AST_CONV;
+    if (deviation > 0.15 && tracking.ast > 0) {
+      // Mean-regression: what would they convert at the sustainable baseline?
+      const meanAst  = tracking.potentialAst * LEAGUE_AVG_AST_CONV;
+      const regressedAst = tracking.ast * 0.70 + meanAst * 0.30; // 30% regression weight
+      const rawAdj   = regressedAst / tracking.ast;
+      astConvAdj = +Math.max(0.90, Math.min(1.10, rawAdj)).toFixed(4);
+    }
+  }
+
+  const adjustedProjection = +(blended * paceAdj * defAdj * homeAdj * restAdj * onOffAdj * tsAdj * fg3DefAdj * clutchAdj * injAdj * vsOppAdj * matchupDeltaAdj * astConvAdj).toFixed(1);
+  return { propRS, propPO, propRecent, propVsOpp, blended, gamePace, paceAdj, defAdj, homeAdj, restAdj, onOffAdj, tsAdj, fg3DefAdj, clutchAdj, injAdj, vsOppAdj, matchupDeltaAdj, astConvAdj, isHome, restDays, adjustedProjection };
 }
 
 const S = `
@@ -575,12 +615,14 @@ export default function NBAPropsModel() {
   const [liveInjuries, setLiveInjuries] = useState(null); // null = loading, false = failed, object = loaded
   const [livePlayerDB, setLivePlayerDB] = useState(null); // null = loading, false = failed, object = loaded
   const [liveTeamData, setLiveTeamData] = useState(null); // null = loading, false = failed, object = loaded
-  const [nbaApiStatus, setNbaApiStatus] = useState("loading"); // "loading" | "live" | "offline"
+  const [nbaApiStatus, setNbaApiStatus] = useState("loading"); // "loading" | "warming" | "live" | "offline"
   const [homeAwaySplits, setHomeAwaySplits] = useState(null); // per-player home/road PO splits
   const [teamDefense, setTeamDefense] = useState(null);       // per-team zone defense (3pt, rim)
   const [scoringBreakdown, setScoringBreakdown] = useState(null); // % pts from 3s/paint/FTs/MR
   const [clutchStats, setClutchStats] = useState(null);           // clutch PO stats per player
   const [hustleStats, setHustleStats] = useState(null);           // deflections, box-outs, etc
+  const [trackingStats, setTrackingStats] = useState(null);       // potential assists, rebound chance %, passes
+  const [matchupDelta, setMatchupDelta] = useState(null);         // rolling L5-game dEFF vs season dEFF per team
   const [recentStats, setRecentStats] = useState(null);
   const [vsOpponentStats, setVsOpponentStats] = useState(null);
   const [pname, setPname] = useState("");
@@ -658,11 +700,15 @@ Include only players with confirmed status on today's official report. Status me
     fetchInjuries();
   }, []);
 
-  // ── Fetch all NBA.com data from Render backend (all 7 endpoints cached server-side) ──
+  // ── Fetch all NBA.com data from Render backend (9 endpoints cached server-side) ──
+  // Retry logic: Render free tier cold-starts in ~30-60s. If the server isn't ready,
+  // we wait 20s and retry up to 4 times before falling back to static data.
   useEffect(() => {
-    const fetchNBAData = async () => {
+    let cancelled = false;
+    const tryFetch = async (attempt = 0) => {
+      if (cancelled) return;
       try {
-        const [playersResp, teamsResp, splitsResp, teamDefResp, scoringResp, clutchResp, hustleResp] = await Promise.all([
+        const [playersResp, teamsResp, splitsResp, teamDefResp, scoringResp, clutchResp, hustleResp, trackingResp, matchupResp] = await Promise.all([
           fetch(`${API_BASE}/players`),
           fetch(`${API_BASE}/teams`),
           fetch(`${API_BASE}/splits`),
@@ -670,26 +716,40 @@ Include only players with confirmed status on today's official report. Status me
           fetch(`${API_BASE}/scoring`),
           fetch(`${API_BASE}/clutch`),
           fetch(`${API_BASE}/hustle`),
+          fetch(`${API_BASE}/tracking`),
+          fetch(`${API_BASE}/matchup-delta`),
         ]);
         if (!playersResp.ok || !teamsResp.ok) throw new Error("server error");
         const safe = r => (r.ok ? r.json() : Promise.resolve(null));
-        const [playersData, teamsData, splitsData, teamDefData, scoringData, clutchData, hustleData] = await Promise.all([
+        const [playersData, teamsData, splitsData, teamDefData, scoringData, clutchData, hustleData, trackingData, matchupData] = await Promise.all([
           playersResp.json(), teamsResp.json(),
           safe(splitsResp), safe(teamDefResp), safe(scoringResp), safe(clutchResp), safe(hustleResp),
+          safe(trackingResp), safe(matchupResp),
         ]);
+        if (cancelled) return;
         if (playersData.success) setLivePlayerDB(playersData.players);
-        if (teamsData.success) setLiveTeamData(teamsData.teams);
-        if (splitsData?.success)  setHomeAwaySplits(splitsData.splits);
-        if (teamDefData?.success) setTeamDefense(teamDefData.teamDefense);
-        if (scoringData?.success) setScoringBreakdown(scoringData.scoring);
-        if (clutchData?.success)  setClutchStats(clutchData.clutch);
-        if (hustleData?.success)  setHustleStats(hustleData.hustle);
+        if (teamsData.success)   setLiveTeamData(teamsData.teams);
+        if (splitsData?.success)   setHomeAwaySplits(splitsData.splits);
+        if (teamDefData?.success)  setTeamDefense(teamDefData.teamDefense);
+        if (scoringData?.success)  setScoringBreakdown(scoringData.scoring);
+        if (clutchData?.success)   setClutchStats(clutchData.clutch);
+        if (hustleData?.success)   setHustleStats(hustleData.hustle);
+        if (trackingData?.success) setTrackingStats(trackingData.tracking);
+        if (matchupData?.success)  setMatchupDelta(matchupData.matchupDelta);
         setNbaApiStatus("live");
       } catch {
-        setNbaApiStatus("offline");
+        if (cancelled) return;
+        if (attempt < 4) {
+          // Server warming up (Render cold start ~30-60s) — retry with 20s delay
+          setNbaApiStatus("warming");
+          setTimeout(() => tryFetch(attempt + 1), 20000);
+        } else {
+          setNbaApiStatus("offline");
+        }
       }
     };
-    fetchNBAData();
+    tryFetch();
+    return () => { cancelled = true; };
   }, []);
 
   // Merge live schedule metadata into static rosters using useMemo (correct hook for derived values)
@@ -830,16 +890,35 @@ Include only players with confirmed status on today's official report. Status me
     if (!(game[pt] || []).includes(player.key)) { setErr(`${dn(player.key)} (${pt}) is not in this game (${game.away} @ ${game.home}).`); return; }
     const isHome = pt === game.home;
     const restDays = game.restDays?.[pt] ?? null;
-    const playerSplits  = homeAwaySplits?.[pkey]    ?? null;
-    const playerScoring = scoringBreakdown?.[pkey]  ?? null;
-    const playerClutch  = clutchStats?.[pkey]       ?? null;
-    const proj = computeProjection(prop, player, pt, ot, isHome, restDays, effectiveTeamData, recentStats, vsOpponentStats, playerSplits, teamDefense, playerScoring, playerClutch, injuryContext.adj);
-    const edge = +(proj.adjustedProjection - l).toFixed(2);
+    const playerSplits   = homeAwaySplits?.[pkey]   ?? null;
+    const playerScoring  = scoringBreakdown?.[pkey] ?? null;
+    const playerClutch   = clutchStats?.[pkey]      ?? null;
+    const playerTracking = trackingStats?.[pkey]    ?? null;
+    const proj = computeProjection(prop, player, pt, ot, isHome, restDays, effectiveTeamData, recentStats, vsOpponentStats, playerSplits, teamDefense, playerScoring, playerClutch, injuryContext.adj, playerTracking, matchupDelta);
+    const edge    = +(proj.adjustedProjection - l).toFixed(2);
     const verdict = Math.abs(edge) < 0.3 ? "push" : edge > 0 ? "over" : "under";
-    const abs = Math.abs(edge);
-    const conf = abs >= 3 && player.po.gp >= 4 ? "HIGH" : abs >= 1.5 ? "MEDIUM" : "LOW";
-    const inj = INJURIES[player.key] || null;
-    setResult({ player, prop, game, pt, ot, l, proj, verdict, edge, conf, ptd: effectiveTeamData[pt], otd: effectiveTeamData[ot], isHome, restDays });
+    // EV % edge = (projection − line) / line × 100 — standard sportsbook edge metric
+    const evPct   = l > 0 ? +((proj.adjustedProjection - l) / l * 100).toFixed(2) : 0;
+    const absEv   = Math.abs(evPct);
+    // S/A/B/NO BET grading based on EV edge thresholds (user-defined)
+    const confGrade = absEv > 12 ? "S-TIER" : absEv > 8 ? "A-TIER" : absEv > 4 ? "B-TIER" : "NO BET";
+    const conf      = absEv >= (3/l*100) && player.po.gp >= 4 ? "HIGH" : absEv >= (1.5/l*100) ? "MEDIUM" : "LOW";
+    // Variable impact list: collect all active adjustors, sort by absolute % impact
+    const impactList = [
+      { name: "Pace",           impact: (proj.paceAdj - 1) * 100 },
+      { name: "Zone Defense",   impact: (proj.defAdj - 1) * 100 },
+      { name: `Matchup Δ (L5 ${ot})`, impact: (proj.matchupDeltaAdj - 1) * 100 },
+      { name: `Home/Road`,      impact: (proj.homeAdj - 1) * 100 },
+      { name: "Rest Days",      impact: (proj.restAdj - 1) * 100 },
+      { name: "On/Off NETRTG",  impact: (proj.onOffAdj - 1) * 100 },
+      { name: "TS% Shift",      impact: (proj.tsAdj - 1) * 100 },
+      { name: "3pt Defense",    impact: (proj.fg3DefAdj - 1) * 100 },
+      { name: "Clutch Rate",    impact: (proj.clutchAdj - 1) * 100 },
+      { name: "Injury/USG",     impact: (proj.injAdj - 1) * 100 },
+      { name: `vs ${ot} History`, impact: (proj.vsOppAdj - 1) * 100 },
+      { name: "AST Conv Regress", impact: (proj.astConvAdj - 1) * 100 },
+    ].filter(v => Math.abs(v.impact) > 0.05).sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact));
+    setResult({ player, prop, game, pt, ot, l, proj, verdict, edge, evPct, confGrade, impactList, conf, ptd: effectiveTeamData[pt], otd: effectiveTeamData[ot], isHome, restDays });
   }, [canRun, game, db, prop, line, pkey, effectiveTeamData, recentStats, vsOpponentStats, homeAwaySplits, teamDefense, scoringBreakdown, clutchStats, injuryContext]);
 
   const exportToExcel = useCallback(() => {
@@ -932,7 +1011,7 @@ Include only players with confirmed status on today's official report. Status me
           <div className="dbanner">
             ALL DATA VERIFIED · ZERO AI GUESSING · {todayStr.toUpperCase()}
             {" "}{liveInjuries === null ? "· ⟳ LOADING INJURIES..." : liveInjuries === false ? "· INJURIES OFFLINE" : liveInjuries?.updated ? `· ✓ INJURIES LIVE (${liveInjuries.updated})` : ""}
-            {" "}{nbaApiStatus === "loading" ? "· ⟳ NBA.COM..." : nbaApiStatus === "live" ? "· ✓ NBA.COM LIVE" : "· ◎ STATIC STATS"}
+            {" "}{nbaApiStatus === "loading" ? "· ⟳ NBA.COM..." : nbaApiStatus === "warming" ? "· ⟳ WARMING SERVER (retrying)..." : nbaApiStatus === "live" ? "· ✓ NBA.COM LIVE" : "· ◎ STATIC STATS"}
           </div>
         </div>
 
@@ -1034,11 +1113,12 @@ Include only players with confirmed status on today's official report. Status me
         {err && <div className="err">⚠ {err}</div>}
 
         {result && (() => {
-          const { player, prop: pr, game: g, pt, ot, l, proj, verdict, edge, conf, ptd, otd, isHome, restDays } = result;
+          const { player, prop: pr, game: g, pt, ot, l, proj, verdict, edge, evPct, confGrade, impactList, conf, ptd, otd, isHome, restDays } = result;
           const inj = getInjury(player.key);
           const dname = dn(player.key);
           const ec = verdict === "over" ? "#10b981" : verdict === "under" ? "#ef4444" : "#f59e0b";
           const epct = Math.min(Math.abs(edge) / 5, 1);
+          const confGradeColor = confGrade === "S-TIER" ? "#a855f7" : confGrade === "A-TIER" ? "#10b981" : confGrade === "B-TIER" ? "#2563eb" : "#64748b";
           return (
             <div className="rp">
               <div className="rh">
@@ -1051,6 +1131,42 @@ Include only players with confirmed status on today's official report. Status me
                   <div className={`vt ${verdict}`}>{verdict.toUpperCase()}</div>
                   <div className="vc">{conf} CONFIDENCE</div>
                 </div>
+              </div>
+
+              {/* ── CONFIDENCE TERMINAL — Multi-Variate Engine Output ────────── */}
+              <div style={{ background: "#020409", border: `1px solid ${confGradeColor}55`, borderRadius: 10, padding: "14px 18px", marginBottom: 14, fontFamily: "'Azeret Mono', monospace" }}>
+                <div style={{ fontSize: 9, letterSpacing: ".2em", color: confGradeColor, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                  ▶ PROP EDGE ENGINE v3 — MULTI-VARIATE CORRELATION OUTPUT
+                  {nbaApiStatus === "live" && <span style={{ color: "#10b981", marginLeft: "auto" }}>● LIVE</span>}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "4px 0", fontSize: 11, lineHeight: 1.85 }}>
+                  <span style={{ color: "#2a3550" }}>PLAYER  │</span>
+                  <span style={{ color: "#e8f0ff" }}>{dname} <span style={{ color: "#2a3550" }}>│</span> {pt} vs {ot} <span style={{ color: "#2a3550" }}>│</span> {pr.label.toUpperCase()}</span>
+                  <span style={{ color: "#2a3550" }}>PROJ    │</span>
+                  <span style={{ color: "#2563eb", fontWeight: 700, fontSize: 13 }}>{proj.adjustedProjection} {pr.label3}</span>
+                  <span style={{ color: "#2a3550" }}>BOOK    │</span>
+                  <span style={{ color: "#c8d4e8" }}>{l} O/U  <span style={{ color: edge > 0 ? "#10b981" : "#ef4444", marginLeft: 8 }}>{edge > 0 ? "▲" : "▼"} {Math.abs(edge)} {pr.label3} {verdict.toUpperCase()}</span></span>
+                  <span style={{ color: "#2a3550" }}>EV EDGE │</span>
+                  <span style={{ color: evPct > 0 ? "#10b981" : "#ef4444", fontWeight: 700 }}>{evPct > 0 ? "+" : ""}{evPct}%</span>
+                  <span style={{ color: "#2a3550" }}>GRADE   │</span>
+                  <span>
+                    <span style={{ background: confGradeColor, color: "#fff", padding: "2px 10px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: ".12em" }}>{confGrade}</span>
+                    <span style={{ color: "#2a3550", fontSize: 9, marginLeft: 10 }}>
+                      {confGrade === "S-TIER" ? "EV > 12%" : confGrade === "A-TIER" ? "EV > 8%" : confGrade === "B-TIER" ? "EV > 4%" : "EV ≤ 4% — model edge insufficient"}
+                    </span>
+                  </span>
+                </div>
+                {impactList.length > 0 && (
+                  <div style={{ borderTop: "1px solid rgba(255,255,255,.04)", marginTop: 10, paddingTop: 8 }}>
+                    <div style={{ fontSize: 9, color: "#2a3550", letterSpacing: ".15em", marginBottom: 6 }}>VARIABLE IMPACT (top drivers):</div>
+                    {impactList.slice(0, 4).map((v, i) => (
+                      <div key={i} style={{ fontSize: 10, color: Math.abs(v.impact) < 0.1 ? "#2a3550" : v.impact > 0 ? "#10b981" : "#ef4444", marginBottom: 2, display: "flex", gap: 8 }}>
+                        <span style={{ minWidth: 52 }}>[{v.impact > 0 ? "+" : ""}{v.impact.toFixed(2)}%]</span>
+                        <span>{v.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {inj && <div className={`injb ${inj.status === "GTD" || inj.status === "PROB" ? "gtd" : ""}`}>
@@ -1114,12 +1230,25 @@ Include only players with confirmed status on today's official report. Status me
                   <span className="mk">vs {ot} historical ({vsOpponentStats?.gp}g · {vsOpponentStats?.source} · nba_api game logs)</span>
                   <span className={`mv ${proj.vsOppAdj > 1.001 ? "pos" : proj.vsOppAdj < 0.999 ? "neg" : ""}`}>×{proj.vsOppAdj.toFixed(4)} ({proj.vsOppAdj > 1.001 ? "+" : ""}{((proj.vsOppAdj - 1) * 100).toFixed(2)}%)</span>
                 </div>}
+                {proj.matchupDeltaAdj !== 1.0 && <div className="mr">
+                  <span className="mk">
+                    Matchup Δ — {ot} L5 dEFF {matchupDelta?.[ot]?.l5_dEFF} vs season {matchupDelta?.[ot]?.season_dEFF}
+                    {" "}(Δ {matchupDelta?.[ot]?.dEFF_delta > 0 ? "+" : ""}{matchupDelta?.[ot]?.dEFF_delta} · {matchupDelta?.[ot]?.dEFF_delta > 0 ? "softened" : "tightened"} recently · NBA.com L5)
+                  </span>
+                  <span className={`mv ${proj.matchupDeltaAdj > 1.001 ? "pos" : proj.matchupDeltaAdj < 0.999 ? "neg" : ""}`}>×{proj.matchupDeltaAdj.toFixed(4)} ({proj.matchupDeltaAdj > 1.001 ? "+" : ""}{((proj.matchupDeltaAdj - 1) * 100).toFixed(2)}%)</span>
+                </div>}
+                {proj.astConvAdj !== 1.0 && <div className="mr">
+                  <span className="mk">
+                    AST conversion regression — {trackingStats?.[pkey]?.potentialAst} pot. ast/g → {trackingStats?.[pkey]?.ast} actual ({((trackingStats?.[pkey]?.astConvRate ?? 0) * 100).toFixed(0)}% conv rate vs 30% baseline · NBA.com PtStats)
+                  </span>
+                  <span className={`mv ${proj.astConvAdj > 1.001 ? "pos" : proj.astConvAdj < 0.999 ? "neg" : ""}`}>×{proj.astConvAdj.toFixed(4)} ({proj.astConvAdj > 1.001 ? "+" : ""}{((proj.astConvAdj - 1) * 100).toFixed(2)}%)</span>
+                </div>}
                 <div className="mr" style={{ borderTop: "1px solid rgba(37,99,235,.15)", marginTop: 4, paddingTop: 8 }}>
                   <span className="mk" style={{ color: "#c8d4e8", fontWeight: 600 }}>Model projection</span>
                   <span className="mv acc">{proj.adjustedProjection} {pr.label3}</span>
                 </div>
                 <div className="mf">
-                  {proj.blended} × {proj.paceAdj.toFixed(4)} (pace){proj.defAdj !== 1.0 ? ` × ${proj.defAdj.toFixed(4)} (def)` : ""}{proj.homeAdj !== 1.0 ? ` × ${proj.homeAdj.toFixed(4)} (${isHome ? "home" : "road"})` : ""}{proj.restAdj !== 1.0 ? ` × ${proj.restAdj.toFixed(4)} (rest)` : ""}{proj.onOffAdj !== 1.0 ? ` × ${proj.onOffAdj.toFixed(4)} (on/off)` : ""}{proj.tsAdj !== 1.0 ? ` × ${proj.tsAdj.toFixed(4)} (TS%)` : ""}{proj.fg3DefAdj !== 1.0 ? ` × ${proj.fg3DefAdj.toFixed(4)} (3pt def)` : ""}{proj.injAdj > 1.001 ? ` × ${proj.injAdj.toFixed(4)} (inj boost)` : ""}{proj.clutchAdj !== 1.0 ? ` × ${proj.clutchAdj.toFixed(4)} (clutch)` : ""}{proj.vsOppAdj !== 1.0 ? ` × ${proj.vsOppAdj.toFixed(4)} (vs opp)` : ""} = {proj.adjustedProjection}
+                  {proj.blended} × {proj.paceAdj.toFixed(4)} (pace){proj.defAdj !== 1.0 ? ` × ${proj.defAdj.toFixed(4)} (def)` : ""}{proj.homeAdj !== 1.0 ? ` × ${proj.homeAdj.toFixed(4)} (${isHome ? "home" : "road"})` : ""}{proj.restAdj !== 1.0 ? ` × ${proj.restAdj.toFixed(4)} (rest)` : ""}{proj.onOffAdj !== 1.0 ? ` × ${proj.onOffAdj.toFixed(4)} (on/off)` : ""}{proj.tsAdj !== 1.0 ? ` × ${proj.tsAdj.toFixed(4)} (TS%)` : ""}{proj.fg3DefAdj !== 1.0 ? ` × ${proj.fg3DefAdj.toFixed(4)} (3pt def)` : ""}{proj.injAdj > 1.001 ? ` × ${proj.injAdj.toFixed(4)} (inj boost)` : ""}{proj.clutchAdj !== 1.0 ? ` × ${proj.clutchAdj.toFixed(4)} (clutch)` : ""}{proj.vsOppAdj !== 1.0 ? ` × ${proj.vsOppAdj.toFixed(4)} (vs opp)` : ""}{proj.matchupDeltaAdj !== 1.0 ? ` × ${proj.matchupDeltaAdj.toFixed(4)} (matchup Δ)` : ""}{proj.astConvAdj !== 1.0 ? ` × ${proj.astConvAdj.toFixed(4)} (ast conv)` : ""} = {proj.adjustedProjection}
                 </div>
               </div>
 
@@ -1181,6 +1310,27 @@ Include only players with confirmed status on today's official report. Status me
                 {hustleStats?.[pkey] && (pr.id === "rebounds" || pr.id === "pra") && <div className="mr"><span className="mk">PO hustle — def box-outs / off box-outs / box-out rebs</span><span className="mv">{hustleStats[pkey].defBoxouts} / {hustleStats[pkey].offBoxouts} / {hustleStats[pkey].boxoutRebounds} per game<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM HUSTLE</span></span></div>}
                 {hustleStats?.[pkey] && (pr.id === "steals") && <div className="mr"><span className="mk">PO hustle — deflections / charges drawn / contested shots</span><span className="mv">{hustleStats[pkey].deflections} / {hustleStats[pkey].chargesDrawn} / {hustleStats[pkey].contestedShots} per game<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM HUSTLE</span></span></div>}
                 {hustleStats?.[pkey] && pr.id === "three_pointers" && <div className="mr"><span className="mk">PO contested 3pt shots player takes vs opponent contesting</span><span className="mv">{hustleStats[pkey].contested3pt} contested 3PA/g<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM HUSTLE</span></span></div>}
+                {trackingStats?.[pkey] && (pr.id === "assists" || pr.id === "pra" || pr.id === "pa") && trackingStats[pkey].gp >= 3 && <div className="mr">
+                  <span className="mk">PO passing — potential ast / actual ast / conv rate</span>
+                  <span className={`mv ${proj.astConvAdj < 0.999 ? "neg" : proj.astConvAdj > 1.001 ? "pos" : ""}`}>
+                    {trackingStats[pkey].potentialAst} pot. → {trackingStats[pkey].ast} ast ({((trackingStats[pkey].astConvRate ?? 0)*100).toFixed(0)}% conv · lg avg 30%)
+                    <span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM TRACKING</span>
+                  </span>
+                </div>}
+                {trackingStats?.[pkey] && (pr.id === "rebounds" || pr.id === "pra") && trackingStats[pkey].gp >= 3 && <div className="mr">
+                  <span className="mk">PO rebound chances — oreb chance / dreb chance / total reb chance %</span>
+                  <span className="mv">
+                    {trackingStats[pkey].orebChance} / {trackingStats[pkey].drebChance} → {trackingStats[pkey].rebChancePct}% of chances secured
+                    <span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM TRACKING</span>
+                  </span>
+                </div>}
+                {matchupDelta?.[ot] && <div className="mr">
+                  <span className="mk">{ot} last-5-game dEFF vs season dEFF</span>
+                  <span className={`mv ${matchupDelta[ot].dEFF_delta > 0.5 ? "pos" : matchupDelta[ot].dEFF_delta < -0.5 ? "neg" : ""}`}>
+                    L5: {matchupDelta[ot].l5_dEFF} vs PO season: {matchupDelta[ot].season_dEFF} (Δ {matchupDelta[ot].dEFF_delta > 0 ? "+" : ""}{matchupDelta[ot].dEFF_delta})
+                    <span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM L5</span>
+                  </span>
+                </div>}
                 {pr.id === "pra" && <div className="mr"><span className="mk">PO PRA total</span><span className="mv acc">{(player.po.ppg + player.po.rpg + player.po.apg).toFixed(1)}</span></div>}
                 {pr.id === "pa" && <div className="mr"><span className="mk">PO P+A total</span><span className="mv acc">{(player.po.ppg + player.po.apg).toFixed(1)}</span></div>}
                 {pr.id === "pr" && <div className="mr"><span className="mk">PO P+R total</span><span className="mv acc">{(player.po.ppg + player.po.rpg).toFixed(1)}</span></div>}
@@ -1191,7 +1341,8 @@ Include only players with confirmed status on today's official report. Status me
                 Player RS/PO base + advanced: LeagueDashPlayerStats · Home/Road PO splits: location_nullable · Shot profile: Scoring measure ·
                 Clutch PO: LeagueDashPlayerClutch · Hustle PO: LeagueHustleStatsPlayer · Team zone defense: LeagueDashPtTeamDefend ·
                 Team pace+efficiency: LeagueDashTeamStats · vs-opponent + L5: PlayerGameLog ·
-                METHOD: PO×0.6+RS×0.4 (or PO×0.4+RS×0.25+L5×0.35) × Pace × Zone-weighted Defense × Home/Road × Rest × On/Off × TS% × 3pt Defense × Clutch × vs-Opponent
+                Passing/Assists/Rebound tracking: LeagueDashPtStats (Passing + Rebounding) · Rolling matchup dEFF: LeagueDashTeamStats last_n_games=5 ·
+                ENGINE v3: PO×0.6+RS×0.4 (or +L5×0.35) × Pace × Zone-weighted Defense × Matchup Delta (L5) × Home/Road × Rest × On/Off × TS% × 3pt Defense × Clutch × vs-Opponent × AST Conversion Regression
               </div>
             </div>
           );
