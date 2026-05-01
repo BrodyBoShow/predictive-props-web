@@ -713,13 +713,14 @@ Include only players with confirmed status on today's official report. Status me
     };
 
     // Phase 1 — poll /api/ready every 8s until server warmup is done.
-    // This is cheap (no data transfer) and avoids hammering all 9 endpoints.
+    // If /api/ready returns 404 (older server deploy), skip straight to data fetch.
     // Render cold start + NBA API warmup ≈ 2-4 min → 35 polls × 8s = 280s max.
     const waitForReady = async () => {
       for (let i = 0; i < 35; i++) {
         if (cancelled) return false;
         try {
           const resp = await fetchT(`${API_BASE}/ready`, 8000);
+          if (resp.status === 404) return true; // old server — no /api/ready, try fetching directly
           if (resp.ok) {
             const data = await resp.json();
             if (data.ready) return true;
