@@ -311,10 +311,15 @@ function lookupPlayer(name, db = PLAYER_DB) {
 
 function dn(k) { return k.split(" ").map(w => w[0].toUpperCase() + w.slice(1)).join(" "); }
 
-function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, teamData = TEAM_DATA) {
+function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, teamData = TEAM_DATA, recent = null, vsOpponent = null) {
   const rs = player.rs, po = player.po;
   const propRS = prop.statKey(rs), propPO = prop.statKey(po);
-  const blended = +(propPO * 0.60 + propRS * 0.40).toFixed(2);
+  const propRecent = recent ? +prop.statKey(recent).toFixed(2) : null;
+  const propVsOpp = vsOpponent ? +prop.statKey(vsOpponent).toFixed(2) : null;
+  // If last-5 available, blend in recent form (35% weight); otherwise standard 60/40
+  const blended = propRecent !== null && propRecent > 0
+    ? +(propPO * 0.40 + propRS * 0.25 + propRecent * 0.35).toFixed(2)
+    : +(propPO * 0.60 + propRS * 0.40).toFixed(2);
   const ptd = teamData[playerTeam], otd = teamData[oppTeam];
   const isScoringProp = ["points", "pra", "pa", "pr"].includes(prop.id);
 
@@ -375,8 +380,18 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
     tsAdj = +(1 + cappedTS).toFixed(4);
   }
 
-  const adjustedProjection = +(blended * paceAdj * defAdj * homeAdj * restAdj * onOffAdj * tsAdj).toFixed(1);
-  return { propRS, propPO, blended, gamePace, paceAdj, defAdj, homeAdj, restAdj, onOffAdj, tsAdj, isHome, restDays, adjustedProjection };
+  // ── VS OPPONENT ADJUSTMENT ────────────────────────────────────────────────
+  // Source: nba_api PlayerGameLog filtered by opponent (PO first, RS fallback)
+  // Ratio of player's historical avg vs this team vs their PO avg, capped ±8%
+  let vsOppAdj = 1.0;
+  if (isScoringProp && propVsOpp !== null && propVsOpp > 0 && propPO > 0 && vsOpponent?.gp >= 2) {
+    const rawAdj = (propVsOpp / propPO) - 1.0;
+    const cappedAdj = Math.max(-0.08, Math.min(0.08, rawAdj));
+    vsOppAdj = +(1 + cappedAdj).toFixed(4);
+  }
+
+  const adjustedProjection = +(blended * paceAdj * defAdj * homeAdj * restAdj * onOffAdj * tsAdj * vsOppAdj).toFixed(1);
+  return { propRS, propPO, propRecent, propVsOpp, blended, gamePace, paceAdj, defAdj, homeAdj, restAdj, onOffAdj, tsAdj, vsOppAdj, isHome, restDays, adjustedProjection };
 }
 
 const S = `
@@ -486,6 +501,8 @@ export default function NBAPropsModel() {
   const [livePlayerDB, setLivePlayerDB] = useState(null); // null = loading, false = failed, object = loaded
   const [liveTeamData, setLiveTeamData] = useState(null); // null = loading, false = failed, object = loaded
   const [nbaApiStatus, setNbaApiStatus] = useState("loading"); // "loading" | "live" | "offline"
+  const [recentStats, setRecentStats] = useState(null);
+  const [vsOpponentStats, setVsOpponentStats] = useState(null);
   const [pname, setPname] = useState("");
   const [pkey, setPkey] = useState(null);
   const [prop, setProp] = useState(null);
@@ -583,6 +600,23 @@ Include only players with confirmed status on today's official report. Status me
     fetchNBAData();
   }, []);
 
+  // Fetch last-5 game logs + vs-opponent splits when player/game changes
+  useEffect(() => {
+    setRecentStats(null);
+    setVsOpponentStats(null);
+    if (!pkey || !game) return;
+    const player = effectiveDB[pkey];
+    if (!player?.pid) return;
+    const opp = player.team === game.home ? game.away : game.home;
+    Promise.all([
+      fetch(`${API_BASE}/recent/${player.pid}`).then(r => r.json()).catch(() => null),
+      fetch(`${API_BASE}/vs-opponent/${player.pid}/${opp}`).then(r => r.json()).catch(() => null),
+    ]).then(([recentData, vsData]) => {
+      if (recentData?.success) setRecentStats(recentData.recent);
+      if (vsData?.success) setVsOpponentStats(vsData.vsOpponent ? { ...vsData.vsOpponent, gp: vsData.gp, source: vsData.source } : null);
+    });
+  }, [pkey, game, effectiveDB]);
+
   // Merge live schedule metadata into static rosters using useMemo (correct hook for derived values)
   const activeRosters = useMemo(() => {
     const base = { ...GAME_ROSTERS };
@@ -652,14 +686,14 @@ Include only players with confirmed status on today's official report. Status me
     if (!(game[pt] || []).includes(player.key)) { setErr(`${dn(player.key)} (${pt}) is not in this game (${game.away} @ ${game.home}).`); return; }
     const isHome = pt === game.home;
     const restDays = game.restDays?.[pt] ?? null;
-    const proj = computeProjection(prop, player, pt, ot, isHome, restDays, effectiveTeamData);
+    const proj = computeProjection(prop, player, pt, ot, isHome, restDays, effectiveTeamData, recentStats, vsOpponentStats);
     const edge = +(proj.adjustedProjection - l).toFixed(2);
     const verdict = Math.abs(edge) < 0.3 ? "push" : edge > 0 ? "over" : "under";
     const abs = Math.abs(edge);
     const conf = abs >= 3 && player.po.gp >= 4 ? "HIGH" : abs >= 1.5 ? "MEDIUM" : "LOW";
     const inj = INJURIES[player.key] || null;
     setResult({ player, prop, game, pt, ot, l, proj, verdict, edge, conf, ptd: effectiveTeamData[pt], otd: effectiveTeamData[ot], isHome, restDays });
-  }, [canRun, game, db, prop, line, effectiveTeamData]);
+  }, [canRun, game, db, prop, line, effectiveTeamData, recentStats, vsOpponentStats]);
 
   const exportToExcel = useCallback(() => {
     if (!result) return;
@@ -873,9 +907,11 @@ Include only players with confirmed status on today's official report. Status me
 
 
               <div className="sr">
-                <div className="sb"><div className="sbl">RS AVG · 40% wt</div><div className="sbv">{proj.propRS}</div><div className="sbs">{player.rs.gp}g · {pr.label3}</div></div>
-                <div className="sb"><div className="sbl">PO AVG · 60% wt</div><div className="sbv">{proj.propPO}</div><div className="sbs">{player.po.gp}g · {pr.label3}</div></div>
-                <div className="sb hi"><div className="sbl">BLENDED BASE</div><div className="sbv bl">{proj.blended}</div><div className="sbs">PO×0.6 + RS×0.4</div></div>
+                <div className="sb"><div className="sbl">RS AVG · {proj.propRecent !== null ? "25%" : "40%"} wt</div><div className="sbv">{proj.propRS}</div><div className="sbs">{player.rs.gp}g · {pr.label3}</div></div>
+                <div className="sb"><div className="sbl">PO AVG · {proj.propRecent !== null ? "40%" : "60%"} wt</div><div className="sbv">{proj.propPO}</div><div className="sbs">{player.po.gp}g · {pr.label3}</div></div>
+                {proj.propRecent !== null && <div className="sb"><div className="sbl">L5 AVG · 35% wt</div><div className="sbv" style={{color:"#f59e0b"}}>{proj.propRecent}</div><div className="sbs">Last 5 PO games</div></div>}
+                {proj.propVsOpp !== null && vsOpponentStats?.gp >= 2 && <div className="sb"><div className="sbl">vs {ot} ({vsOpponentStats.source})</div><div className="sbv" style={{color:"#a78bfa"}}>{proj.propVsOpp}</div><div className="sbs">{vsOpponentStats.gp}g · {pr.label3}</div></div>}
+                <div className="sb hi"><div className="sbl">BLENDED BASE</div><div className="sbv bl">{proj.blended}</div><div className="sbs">{proj.propRecent !== null ? "PO×0.4+RS×0.25+L5×0.35" : "PO×0.6+RS×0.4"}</div></div>
               </div>
 
               <div className="mb">
@@ -906,6 +942,10 @@ Include only players with confirmed status on today's official report. Status me
                 {proj.tsAdj !== 1.0 && <div className="mr">
                   <span className="mk">TS% shift (RS {player.rs.ts}% → PO {player.po.ts}% · NBA.com Players Advanced)</span>
                   <span className={`mv ${proj.tsAdj > 1.001 ? "pos" : proj.tsAdj < 0.999 ? "neg" : ""}`}>×{proj.tsAdj.toFixed(4)} ({proj.tsAdj > 1.001 ? "+" : ""}{((proj.tsAdj - 1) * 100).toFixed(2)}%)</span>
+                </div>}
+                {proj.vsOppAdj !== 1.0 && <div className="mr">
+                  <span className="mk">vs {ot} historical ({vsOpponentStats?.gp}g · {vsOpponentStats?.source} · nba_api game logs)</span>
+                  <span className={`mv ${proj.vsOppAdj > 1.001 ? "pos" : proj.vsOppAdj < 0.999 ? "neg" : ""}`}>×{proj.vsOppAdj.toFixed(4)} ({proj.vsOppAdj > 1.001 ? "+" : ""}{((proj.vsOppAdj - 1) * 100).toFixed(2)}%)</span>
                 </div>}
                 <div className="mr" style={{ borderTop: "1px solid rgba(37,99,235,.15)", marginTop: 4, paddingTop: 8 }}>
                   <span className="mk" style={{ color: "#c8d4e8", fontWeight: 600 }}>Model projection</span>
