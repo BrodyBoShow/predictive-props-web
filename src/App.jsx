@@ -607,7 +607,7 @@ Include only players with confirmed status on today's official report. Status me
     if (!pkey || !gid) return;
     const player = effectiveDB[pkey];
     if (!player?.pid) return;
-    const g = activeRosters[gid];
+    const g = GAME_ROSTERS[gid];
     if (!g) return;
     const opp = player.team === g.home ? g.away : g.home;
     Promise.all([
@@ -617,7 +617,7 @@ Include only players with confirmed status on today's official report. Status me
       if (recentData?.success) setRecentStats(recentData.recent);
       if (vsData?.success) setVsOpponentStats(vsData.vsOpponent ? { ...vsData.vsOpponent, gp: vsData.gp, source: vsData.source } : null);
     });
-  }, [pkey, gid, effectiveDB, activeRosters]);
+  }, [pkey, gid, effectiveDB]);
 
   // Merge live schedule metadata into static rosters using useMemo (correct hook for derived values)
   const activeRosters = useMemo(() => {
