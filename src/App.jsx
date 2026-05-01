@@ -705,21 +705,26 @@ Include only players with confirmed status on today's official report. Status me
   // we wait 20s and retry up to 4 times before falling back to static data.
   useEffect(() => {
     let cancelled = false;
+    // Each attempt: AbortSignal.timeout(20000) kills a hanging fetch after 20s.
+    // This prevents one slow request from eating up the entire retry budget.
+    // Render cold start + warmup = up to 3 minutes → 8 retries × 25s = 200s window.
+    const signal = () => AbortSignal.timeout(20000);
     const tryFetch = async (attempt = 0) => {
       if (cancelled) return;
       try {
         const [playersResp, teamsResp, splitsResp, teamDefResp, scoringResp, clutchResp, hustleResp, trackingResp, matchupResp] = await Promise.all([
-          fetch(`${API_BASE}/players`),
-          fetch(`${API_BASE}/teams`),
-          fetch(`${API_BASE}/splits`),
-          fetch(`${API_BASE}/team-defense`),
-          fetch(`${API_BASE}/scoring`),
-          fetch(`${API_BASE}/clutch`),
-          fetch(`${API_BASE}/hustle`),
-          fetch(`${API_BASE}/tracking`),
-          fetch(`${API_BASE}/matchup-delta`),
+          fetch(`${API_BASE}/players`,       { signal: signal() }),
+          fetch(`${API_BASE}/teams`,         { signal: signal() }),
+          fetch(`${API_BASE}/splits`,        { signal: signal() }),
+          fetch(`${API_BASE}/team-defense`,  { signal: signal() }),
+          fetch(`${API_BASE}/scoring`,       { signal: signal() }),
+          fetch(`${API_BASE}/clutch`,        { signal: signal() }),
+          fetch(`${API_BASE}/hustle`,        { signal: signal() }),
+          fetch(`${API_BASE}/tracking`,      { signal: signal() }),
+          fetch(`${API_BASE}/matchup-delta`, { signal: signal() }),
         ]);
-        if (!playersResp.ok || !teamsResp.ok) throw new Error("server error");
+        // 503 = server is warming up (fast response) — treat same as network error → retry
+        if (!playersResp.ok || !teamsResp.ok) throw new Error(`server ${playersResp.status}`);
         const safe = r => (r.ok ? r.json() : Promise.resolve(null));
         const [playersData, teamsData, splitsData, teamDefData, scoringData, clutchData, hustleData, trackingData, matchupData] = await Promise.all([
           playersResp.json(), teamsResp.json(),
@@ -739,10 +744,11 @@ Include only players with confirmed status on today's official report. Status me
         setNbaApiStatus("live");
       } catch {
         if (cancelled) return;
-        if (attempt < 4) {
-          // Server warming up (Render cold start ~30-60s) — retry with 20s delay
+        if (attempt < 8) {
+          // Server warming (Render cold start + NBA API warmup ≈ 2-3 min total)
+          // 8 retries × 25s delay = 200s total window — covers worst-case cold start
           setNbaApiStatus("warming");
-          setTimeout(() => tryFetch(attempt + 1), 20000);
+          setTimeout(() => tryFetch(attempt + 1), 25000);
         } else {
           setNbaApiStatus("offline");
         }
