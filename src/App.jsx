@@ -725,11 +725,12 @@ Include only players with confirmed status on today's official report. Status me
           const resp = await fetchT(`${API_BASE}/ready`, 8000);
           if (resp.status === 404) {
             // Old server without /api/ready — probe /api/players to confirm warm cache.
+            // Note: players is returned as an object {name: {...}}, not an array — use d.count.
             try {
               const probe = await fetchT(`${API_BASE}/players`, 90000);
               if (probe.ok) {
                 const d = await probe.json();
-                if (d?.success && Array.isArray(d.players) && d.players.length > 10) return true;
+                if (d?.success && (d.count > 10 || Object.keys(d.players || {}).length > 10)) return true;
               }
             } catch {}
             // Old server responded but cache is cold — keep polling.
