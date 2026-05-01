@@ -960,10 +960,10 @@ Include only players with confirmed status on today's official report. Status me
 
               <div className="sr">
                 <div className="sb"><div className="sbl">BOOK LINE</div><div className="sbv">{l}</div><div className="sbs">{pr.short} O/U</div></div>
-                <div className="sb"><div className="sbl">PROJECTION</div><div className="sbv">{proj.adjustedProjection}</div><div className="sbs">Model output</div></div>
+                <div className="sb"><div className="sbl">PROJECTION</div><div className="sbv" style={{ fontSize: 42, color: "#2563eb" }}>{proj.adjustedProjection}</div><div className="sbs">Model output</div></div>
                 <div className="sb hi">
                   <div className="sbl">EDGE vs LINE</div>
-                  <div className="sbv" style={{ color: ec }}>{edge > 0 ? "+" : ""}{edge}</div>
+                  <div className="sbv" style={{ color: ec, fontSize: 38 }}>{edge > 0 ? "+" : ""}{edge}</div>
                   <div className="sbs">{verdict.toUpperCase()} · {proj.blended > 0 ? (((proj.adjustedProjection - l) / proj.blended) * 100).toFixed(1) : 0}% vs baseline</div>
                 </div>
               </div>
@@ -976,9 +976,9 @@ Include only players with confirmed status on today's official report. Status me
                   <span className="mk">Projection vs line (raw edge)</span>
                   <span className={`mv ${edge > 0 ? "pos" : edge < 0 ? "neg" : ""}`}>{edge > 0 ? "+" : ""}{edge} {pr.label3}</span>
                 </div>
-                <div className="mr">
+                <div className="mr" style={{ padding: "8px 0" }}>
                   <span className="mk">Edge as % of blended baseline ({proj.blended})</span>
-                  <span className={`mv ${edge > 0 ? "pos" : edge < 0 ? "neg" : ""}`}>{proj.blended > 0 ? (((proj.adjustedProjection - l) / proj.blended) * 100).toFixed(2) : 0}%</span>
+                  <span className={`mv ${edge > 0 ? "pos" : edge < 0 ? "neg" : ""}`} style={{ fontSize: 22, fontWeight: 700 }}>{proj.blended > 0 ? (((proj.adjustedProjection - l) / proj.blended) * 100).toFixed(2) : 0}%</span>
                 </div>
                 <div className="mr">
                   <span className="mk">Projection vs RS avg ({proj.propRS})</span>
