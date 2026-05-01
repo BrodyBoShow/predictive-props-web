@@ -334,7 +334,8 @@ function etToLocal(timeStr) {
 // playerSplits = {home, road} from /api/splits · teamDef from /api/team-defense
 // scoring = {pctPts3pt, pctPtsPaint, ...} from /api/scoring (LeagueDashPlayerStats Scoring)
 // clutch  = {ppg, gp, ...} from /api/clutch (LeagueDashPlayerClutch Playoffs)
-function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, teamData = TEAM_DATA, recent = null, vsOpponent = null, playerSplits = null, teamDef = null, scoring = null, clutch = null) {
+// injuryAdj = multiplier computed from teammate OUT status + NBA.com USG% redistribution
+function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, teamData = TEAM_DATA, recent = null, vsOpponent = null, playerSplits = null, teamDef = null, scoring = null, clutch = null, injuryAdj = 1.0) {
   const rs = player.rs, po = player.po;
   const propRS = prop.statKey(rs), propPO = prop.statKey(po);
   const propRecent = recent ? +prop.statKey(recent).toFixed(2) : null;
@@ -457,8 +458,15 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
     vsOppAdj = +(1 + Math.max(-0.08, Math.min(0.08, rawAdj))).toFixed(4);
   }
 
-  const adjustedProjection = +(blended * paceAdj * defAdj * homeAdj * restAdj * onOffAdj * tsAdj * fg3DefAdj * clutchAdj * vsOppAdj).toFixed(1);
-  return { propRS, propPO, propRecent, propVsOpp, blended, gamePace, paceAdj, defAdj, homeAdj, restAdj, onOffAdj, tsAdj, fg3DefAdj, clutchAdj, vsOppAdj, isHome, restDays, adjustedProjection };
+  // ── INJURY USAGE REDISTRIBUTION ────────────────────────────────────────────
+  // When a teammate is OUT, their scoring load redistributes to remaining players
+  // proportional to each player's current usage share. Uses real NBA.com USG% + PPG.
+  // injuryAdj is computed externally (useMemo in component) and passed in.
+  // Cap: +25% max — prevents single-player spikes when a star is unexpectedly OUT.
+  const injAdj = Math.max(1.0, Math.min(1.25, injuryAdj)); // floor at 1.0 (never reduces)
+
+  const adjustedProjection = +(blended * paceAdj * defAdj * homeAdj * restAdj * onOffAdj * tsAdj * fg3DefAdj * clutchAdj * injAdj * vsOppAdj).toFixed(1);
+  return { propRS, propPO, propRecent, propVsOpp, blended, gamePace, paceAdj, defAdj, homeAdj, restAdj, onOffAdj, tsAdj, fg3DefAdj, clutchAdj, injAdj, vsOppAdj, isHome, restDays, adjustedProjection };
 }
 
 const S = `
@@ -754,6 +762,56 @@ Include only players with confirmed status on today's official report. Status me
     return null;
   }, [liveInjuries]);
 
+  // ── Injury usage redistribution — computed live from roster + injury status + NBA.com USG% ──
+  // When teammate(s) are OUT, their scoring load gets redistributed to remaining players
+  // proportional to current PO usage share. Uses real nba_api USG% — no guessing.
+  const injuryContext = useMemo(() => {
+    if (!gid || !pkey || !game) return { adj: 1.0, outPlayers: [], boostPPG: 0 };
+    const player = effectiveDB[pkey];
+    if (!player) return { adj: 1.0, outPlayers: [], boostPPG: 0 };
+
+    const teamKey = player.team;
+    const roster = (game[teamKey] || []);
+
+    // Identify OUT teammates (not the player themselves)
+    const outPlayers = [];
+    const remainingKeys = [];
+    roster.forEach(name => {
+      if (name === pkey) { remainingKeys.push(name); return; }
+      const inj = getInjury(name);
+      if (inj?.status === "OUT") {
+        const p = effectiveDB[name];
+        if (p) outPlayers.push({ name, ppg: p.po?.ppg ?? p.rs?.ppg ?? 0, usg: p.po?.usg ?? p.rs?.usg ?? 0, min: p.po?.min ?? p.rs?.min ?? 0 });
+      } else {
+        remainingKeys.push(name);
+      }
+    });
+
+    if (outPlayers.length === 0) return { adj: 1.0, outPlayers: [], boostPPG: 0 };
+
+    // Sum remaining players' usage shares (for denominator)
+    const remainingUsgTotal = remainingKeys.reduce((sum, name) => {
+      const p = effectiveDB[name];
+      return sum + (p?.po?.usg ?? p?.rs?.usg ?? 0);
+    }, 0);
+    if (remainingUsgTotal <= 0) return { adj: 1.0, outPlayers, boostPPG: 0 };
+
+    // Total freed PPG from all OUT players
+    const freedPPG = outPlayers.reduce((sum, p) => sum + p.ppg, 0);
+
+    // My share of remaining usage
+    const myUsg = player.po?.usg ?? player.rs?.usg ?? 0;
+    const myShare = myUsg / remainingUsgTotal; // e.g., 0.22 = I absorb 22% of freed load
+
+    // Estimated scoring boost this player absorbs
+    const boostPPG = +(freedPPG * myShare).toFixed(2);
+    const myPPG = player.po?.ppg ?? player.rs?.ppg ?? 1;
+    const rawAdj = 1 + (boostPPG / Math.max(myPPG, 1));
+    const adj = +Math.max(1.0, Math.min(1.25, rawAdj)).toFixed(4);
+
+    return { adj, outPlayers, boostPPG, myShare: +(myShare * 100).toFixed(1), freedPPG: +freedPPG.toFixed(1) };
+  }, [gid, pkey, game, effectiveDB, liveInjuries, getInjury]);
+
   const allP = game ? [game.home, game.away].flatMap(t => ((activeRosters[gid] || {})[t] || []).map(k => ({ key: k, team: t, ...effectiveDB[k] }))) : [];
   const filtered = ddOpen && game ? (pname.trim() ? allP.filter(p => p.key.includes(pname.toLowerCase().trim())) : allP) : [];
   const byTeam = {};
@@ -775,14 +833,14 @@ Include only players with confirmed status on today's official report. Status me
     const playerSplits  = homeAwaySplits?.[pkey]    ?? null;
     const playerScoring = scoringBreakdown?.[pkey]  ?? null;
     const playerClutch  = clutchStats?.[pkey]       ?? null;
-    const proj = computeProjection(prop, player, pt, ot, isHome, restDays, effectiveTeamData, recentStats, vsOpponentStats, playerSplits, teamDefense, playerScoring, playerClutch);
+    const proj = computeProjection(prop, player, pt, ot, isHome, restDays, effectiveTeamData, recentStats, vsOpponentStats, playerSplits, teamDefense, playerScoring, playerClutch, injuryContext.adj);
     const edge = +(proj.adjustedProjection - l).toFixed(2);
     const verdict = Math.abs(edge) < 0.3 ? "push" : edge > 0 ? "over" : "under";
     const abs = Math.abs(edge);
     const conf = abs >= 3 && player.po.gp >= 4 ? "HIGH" : abs >= 1.5 ? "MEDIUM" : "LOW";
     const inj = INJURIES[player.key] || null;
     setResult({ player, prop, game, pt, ot, l, proj, verdict, edge, conf, ptd: effectiveTeamData[pt], otd: effectiveTeamData[ot], isHome, restDays });
-  }, [canRun, game, db, prop, line, pkey, effectiveTeamData, recentStats, vsOpponentStats, homeAwaySplits, teamDefense, scoringBreakdown, clutchStats]);
+  }, [canRun, game, db, prop, line, pkey, effectiveTeamData, recentStats, vsOpponentStats, homeAwaySplits, teamDefense, scoringBreakdown, clutchStats, injuryContext]);
 
   const exportToExcel = useCallback(() => {
     if (!result) return;
@@ -1042,6 +1100,12 @@ Include only players with confirmed status on today's official report. Status me
                   <span className="mk">{ot} 3pt defense ({teamDefense?.[ot]?.fg3VsAvg >= 0 ? "+" : ""}{teamDefense?.[ot] ? (teamDefense[ot].fg3VsAvg * 100).toFixed(1) : "?"}% vs lg avg · NBA.com PtTeamDefend PO)</span>
                   <span className={`mv ${proj.fg3DefAdj > 1.005 ? "pos" : proj.fg3DefAdj < 0.995 ? "neg" : ""}`}>×{proj.fg3DefAdj.toFixed(4)} ({proj.fg3DefAdj > 1.001 ? "+" : ""}{((proj.fg3DefAdj - 1) * 100).toFixed(2)}%)</span>
                 </div>}
+                {proj.injAdj > 1.001 && <div className="mr" style={{ background: "rgba(239,68,68,.05)", borderRadius: 4, padding: "4px 6px", marginBottom: 2 }}>
+                  <span className="mk" style={{ color: "#ef4444" }}>
+                    🚨 Injury usage boost — {injuryContext.outPlayers.map(p => `${dn(p.name)} OUT (${p.ppg} PPG, ${p.usg}% USG)`).join(" · ")} → +{injuryContext.boostPPG} PPG freed · {injuryContext.myShare}% of load to {dn(pkey)} (USG-based · NBA.com)
+                  </span>
+                  <span className="mv pos">×{proj.injAdj.toFixed(4)} (+{((proj.injAdj - 1) * 100).toFixed(2)}%)</span>
+                </div>}
                 {proj.clutchAdj !== 1.0 && <div className="mr">
                   <span className="mk">Clutch performance ({clutchStats?.[pkey]?.ppg} PPG clutch vs {player.po.ppg} PO avg · {clutchStats?.[pkey]?.gp}g · NBA.com PlayerClutch PO)</span>
                   <span className={`mv ${proj.clutchAdj > 1.001 ? "pos" : proj.clutchAdj < 0.999 ? "neg" : ""}`}>×{proj.clutchAdj.toFixed(4)} ({proj.clutchAdj > 1.001 ? "+" : ""}{((proj.clutchAdj - 1) * 100).toFixed(2)}%)</span>
@@ -1055,7 +1119,7 @@ Include only players with confirmed status on today's official report. Status me
                   <span className="mv acc">{proj.adjustedProjection} {pr.label3}</span>
                 </div>
                 <div className="mf">
-                  {proj.blended} × {proj.paceAdj.toFixed(4)} (pace){proj.defAdj !== 1.0 ? ` × ${proj.defAdj.toFixed(4)} (def)` : ""}{proj.homeAdj !== 1.0 ? ` × ${proj.homeAdj.toFixed(4)} (${isHome ? "home" : "road"})` : ""}{proj.restAdj !== 1.0 ? ` × ${proj.restAdj.toFixed(4)} (rest)` : ""}{proj.onOffAdj !== 1.0 ? ` × ${proj.onOffAdj.toFixed(4)} (on/off)` : ""}{proj.tsAdj !== 1.0 ? ` × ${proj.tsAdj.toFixed(4)} (TS%)` : ""}{proj.fg3DefAdj !== 1.0 ? ` × ${proj.fg3DefAdj.toFixed(4)} (3pt def)` : ""}{proj.clutchAdj !== 1.0 ? ` × ${proj.clutchAdj.toFixed(4)} (clutch)` : ""}{proj.vsOppAdj !== 1.0 ? ` × ${proj.vsOppAdj.toFixed(4)} (vs opp)` : ""} = {proj.adjustedProjection}
+                  {proj.blended} × {proj.paceAdj.toFixed(4)} (pace){proj.defAdj !== 1.0 ? ` × ${proj.defAdj.toFixed(4)} (def)` : ""}{proj.homeAdj !== 1.0 ? ` × ${proj.homeAdj.toFixed(4)} (${isHome ? "home" : "road"})` : ""}{proj.restAdj !== 1.0 ? ` × ${proj.restAdj.toFixed(4)} (rest)` : ""}{proj.onOffAdj !== 1.0 ? ` × ${proj.onOffAdj.toFixed(4)} (on/off)` : ""}{proj.tsAdj !== 1.0 ? ` × ${proj.tsAdj.toFixed(4)} (TS%)` : ""}{proj.fg3DefAdj !== 1.0 ? ` × ${proj.fg3DefAdj.toFixed(4)} (3pt def)` : ""}{proj.injAdj > 1.001 ? ` × ${proj.injAdj.toFixed(4)} (inj boost)` : ""}{proj.clutchAdj !== 1.0 ? ` × ${proj.clutchAdj.toFixed(4)} (clutch)` : ""}{proj.vsOppAdj !== 1.0 ? ` × ${proj.vsOppAdj.toFixed(4)} (vs opp)` : ""} = {proj.adjustedProjection}
                 </div>
               </div>
 
