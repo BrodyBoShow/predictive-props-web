@@ -600,25 +600,6 @@ Include only players with confirmed status on today's official report. Status me
     fetchNBAData();
   }, []);
 
-  // Fetch last-5 game logs + vs-opponent splits when player/game changes
-  useEffect(() => {
-    setRecentStats(null);
-    setVsOpponentStats(null);
-    if (!pkey || !gid) return;
-    const player = effectiveDB[pkey];
-    if (!player?.pid) return;
-    const g = GAME_ROSTERS[gid];
-    if (!g) return;
-    const opp = player.team === g.home ? g.away : g.home;
-    Promise.all([
-      fetch(`${API_BASE}/recent/${player.pid}`).then(r => r.json()).catch(() => null),
-      fetch(`${API_BASE}/vs-opponent/${player.pid}/${opp}`).then(r => r.json()).catch(() => null),
-    ]).then(([recentData, vsData]) => {
-      if (recentData?.success) setRecentStats(recentData.recent);
-      if (vsData?.success) setVsOpponentStats(vsData.vsOpponent ? { ...vsData.vsOpponent, gp: vsData.gp, source: vsData.source } : null);
-    });
-  }, [pkey, gid, effectiveDB]);
-
   // Merge live schedule metadata into static rosters using useMemo (correct hook for derived values)
   const activeRosters = useMemo(() => {
     const base = { ...GAME_ROSTERS };
@@ -653,6 +634,25 @@ Include only players with confirmed status on today's official report. Status me
     if (!liveTeamData) return TEAM_DATA;
     return { ...TEAM_DATA, ...liveTeamData };
   }, [liveTeamData]);
+
+  // Fetch last-5 game logs + vs-opponent splits — placed here so effectiveDB is already initialized
+  useEffect(() => {
+    setRecentStats(null);
+    setVsOpponentStats(null);
+    if (!pkey || !gid) return;
+    const player = effectiveDB[pkey];
+    if (!player?.pid) return;
+    const g = GAME_ROSTERS[gid];
+    if (!g) return;
+    const opp = player.team === g.home ? g.away : g.home;
+    Promise.all([
+      fetch(`${API_BASE}/recent/${player.pid}`).then(r => r.json()).catch(() => null),
+      fetch(`${API_BASE}/vs-opponent/${player.pid}/${opp}`).then(r => r.json()).catch(() => null),
+    ]).then(([recentData, vsData]) => {
+      if (recentData?.success) setRecentStats(recentData.recent);
+      if (vsData?.success) setVsOpponentStats(vsData.vsOpponent ? { ...vsData.vsOpponent, gp: vsData.gp, source: vsData.source } : null);
+    });
+  }, [pkey, gid, effectiveDB]);
 
   const game = gid ? activeRosters[gid] : null;
   const db = pkey ? lookupPlayer(pkey, effectiveDB) : null;
