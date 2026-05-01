@@ -746,36 +746,40 @@ Include only players with confirmed status on today's official report. Status me
       return false;
     };
 
-    // Phase 2 — server is ready; fetch all endpoints (300s timeout each — handles blocking warmup).
+    // Phase 2 — server is ready; fetch all endpoints using allSettled so one 500/404
+    // can't kill the whole load. Only /api/players is required — everything else falls
+    // back to static constants already baked into the model.
     const fetchAllData = async () => {
-      const [playersResp, teamsResp, splitsResp, teamDefResp, scoringResp, clutchResp, hustleResp, trackingResp, matchupResp] = await Promise.all([
-        fetchT(`${API_BASE}/players`),
-        fetchT(`${API_BASE}/teams`),
-        fetchT(`${API_BASE}/splits`),
-        fetchT(`${API_BASE}/team-defense`),
-        fetchT(`${API_BASE}/scoring`),
-        fetchT(`${API_BASE}/clutch`),
-        fetchT(`${API_BASE}/hustle`),
-        fetchT(`${API_BASE}/tracking`),
-        fetchT(`${API_BASE}/matchup-delta`),
-      ]);
-      if (!playersResp.ok || !teamsResp.ok) throw new Error(`server ${playersResp.status}`);
-      const safe = r => (r.ok ? r.json() : Promise.resolve(null));
+      const safeJson = async (url) => {
+        try {
+          const r = await fetchT(url);
+          if (!r.ok) return null;
+          return await r.json();
+        } catch { return null; }
+      };
       const [playersData, teamsData, splitsData, teamDefData, scoringData, clutchData, hustleData, trackingData, matchupData] = await Promise.all([
-        playersResp.json(), teamsResp.json(),
-        safe(splitsResp), safe(teamDefResp), safe(scoringResp), safe(clutchResp), safe(hustleResp),
-        safe(trackingResp), safe(matchupResp),
+        safeJson(`${API_BASE}/players`),
+        safeJson(`${API_BASE}/teams`),
+        safeJson(`${API_BASE}/splits`),
+        safeJson(`${API_BASE}/team-defense`),
+        safeJson(`${API_BASE}/scoring`),
+        safeJson(`${API_BASE}/clutch`),
+        safeJson(`${API_BASE}/hustle`),
+        safeJson(`${API_BASE}/tracking`),
+        safeJson(`${API_BASE}/matchup-delta`),
       ]);
       if (cancelled) return;
-      if (playersData.success) setLivePlayerDB(playersData.players);
-      if (teamsData.success)   setLiveTeamData(teamsData.teams);
-      if (splitsData?.success)   setHomeAwaySplits(splitsData.splits);
-      if (teamDefData?.success)  setTeamDefense(teamDefData.teamDefense);
-      if (scoringData?.success)  setScoringBreakdown(scoringData.scoring);
-      if (clutchData?.success)   setClutchStats(clutchData.clutch);
-      if (hustleData?.success)   setHustleStats(hustleData.hustle);
-      if (trackingData?.success) setTrackingStats(trackingData.tracking);
-      if (matchupData?.success)  setMatchupDelta(matchupData.matchupDelta);
+      // Players is the only hard requirement — if missing, fall back to static.
+      if (!playersData?.success) throw new Error("players endpoint failed");
+      if (playersData.success)     setLivePlayerDB(playersData.players);
+      if (teamsData?.success)      setLiveTeamData(teamsData.teams);
+      if (splitsData?.success)     setHomeAwaySplits(splitsData.splits);
+      if (teamDefData?.success)    setTeamDefense(teamDefData.teamDefense);
+      if (scoringData?.success)    setScoringBreakdown(scoringData.scoring);
+      if (clutchData?.success)     setClutchStats(clutchData.clutch);
+      if (hustleData?.success)     setHustleStats(hustleData.hustle);
+      if (trackingData?.success)   setTrackingStats(trackingData.tracking);
+      if (matchupData?.success)    setMatchupDelta(matchupData.matchupDelta);
       setNbaApiStatus("live");
     };
 
