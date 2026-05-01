@@ -701,27 +701,39 @@ Include only players with confirmed status on today's official report. Status me
   }, []);
 
   // ── Fetch all NBA.com data from Render backend (9 endpoints cached server-side) ──
-  // Retry logic: Render free tier cold-starts in ~30-60s. If the server isn't ready,
-  // we wait 20s and retry up to 4 times before falling back to static data.
+  // Render free tier: cold-start ~30-90s, NBA API warmup ~3-4 min (9 calls).
+  // Strategy: poll /api/ready (lightweight) every 8s. Once ready, fetch all data.
+  // Old server (no /api/ready): probe /api/players directly until it responds with real data.
+  // Data fetches use 300s timeout so a blocking _warmup_done.wait(240) never races the client.
   useEffect(() => {
     let cancelled = false;
-    // fetchT: fetch with manual AbortController timeout — works all browsers.
-    const fetchT = (url, ms = 30000) => {
+    // fetchT: universal AbortController timeout — works in all browsers.
+    const fetchT = (url, ms = 300000) => {
       const ctrl = new AbortController();
       const tid  = setTimeout(() => ctrl.abort(), ms);
       return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(tid));
     };
 
-    // Phase 1 — poll /api/ready every 8s until server warmup is done.
-    // If /api/ready returns 404 (older server deploy), skip straight to data fetch.
-    // Render cold start + NBA API warmup ≈ 2-4 min → 35 polls × 8s = 280s max.
+    // Phase 1 — poll until server has warm data.
+    // New server: /api/ready returns {ready:true} when all 9 endpoints are cached.
+    // Old server: /api/ready → 404 → probe /api/players directly (90s window per try).
+    // Render cold start + NBA API warmup ≈ 2-4 min → 40 polls × 8s = 320s max.
     const waitForReady = async () => {
-      for (let i = 0; i < 35; i++) {
+      for (let i = 0; i < 40; i++) {
         if (cancelled) return false;
         try {
           const resp = await fetchT(`${API_BASE}/ready`, 8000);
-          if (resp.status === 404) return true; // old server — no /api/ready, try fetching directly
-          if (resp.ok) {
+          if (resp.status === 404) {
+            // Old server without /api/ready — probe /api/players to confirm warm cache.
+            try {
+              const probe = await fetchT(`${API_BASE}/players`, 90000);
+              if (probe.ok) {
+                const d = await probe.json();
+                if (d?.success && Array.isArray(d.players) && d.players.length > 10) return true;
+              }
+            } catch {}
+            // Old server responded but cache is cold — keep polling.
+          } else if (resp.ok) {
             const data = await resp.json();
             if (data.ready) return true;
           }
@@ -733,7 +745,7 @@ Include only players with confirmed status on today's official report. Status me
       return false;
     };
 
-    // Phase 2 — server is ready, fetch all 9 endpoints at once.
+    // Phase 2 — server is ready; fetch all endpoints (300s timeout each — handles blocking warmup).
     const fetchAllData = async () => {
       const [playersResp, teamsResp, splitsResp, teamDefResp, scoringResp, clutchResp, hustleResp, trackingResp, matchupResp] = await Promise.all([
         fetchT(`${API_BASE}/players`),
@@ -767,6 +779,7 @@ Include only players with confirmed status on today's official report. Status me
     };
 
     const run = async () => {
+      setNbaApiStatus("warming");
       const ready = await waitForReady();
       if (cancelled) return;
       if (!ready) { setNbaApiStatus("offline"); return; }
