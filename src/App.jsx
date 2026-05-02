@@ -282,6 +282,31 @@ const GAME_ROSTERS = {
     PHI: ["joel embiid", "tyrese maxey", "paul george", "quentin grimes", "kelly oubre jr", "vj edgecombe", "kyle lowry", "andre drummond", "trendon watford"],
   },
 
+  // ── MAY 3 GAME 7s (per ESPN — NBA stats API doesn't post Game 7s until ──
+  //                   Game 6 results officially confirm the series is tied) ──
+  // EDIT THESE: Replace with real series state from ESPN. Format below.
+  "may3-g7-1": {
+    home: "ORL", away: "DET", homeTeam: "Orlando Magic", awayTeam: "Detroit Pistons",
+    time: "May 3, 1:00 PM ET", title: "Game 7", series: "Series tied 3-3",
+    restDays: { ORL: 1, DET: 1 },
+    ORL: ["paolo banchero", "franz wagner", "jalen suggs", "wendell carter jr", "kentavious caldwell-pope", "anthony black", "tristan da silva"],
+    DET: ["cade cunningham", "jalen duren", "jaden ivey", "ausar thompson", "tobias harris", "tim hardaway jr", "malik beasley", "ron holland"],
+  },
+  "may3-g7-2": {
+    home: "CLE", away: "TOR", homeTeam: "Cleveland Cavaliers", awayTeam: "Toronto Raptors",
+    time: "May 3, 3:30 PM ET", title: "Game 7", series: "Series tied 3-3",
+    restDays: { CLE: 1, TOR: 1 },
+    CLE: ["donovan mitchell", "evan mobley", "darius garland", "jarrett allen", "max strus", "deandre hunter", "ty jerome"],
+    TOR: ["scottie barnes", "brandon ingram", "rj barrett", "immanuel quickley", "jakob poeltl", "gradey dick", "jamal shead"],
+  },
+  "may3-g7-3": {
+    home: "HOU", away: "LAL", homeTeam: "Houston Rockets", awayTeam: "Los Angeles Lakers",
+    time: "May 3, 8:00 PM ET", title: "Game 7", series: "Series tied 3-3",
+    restDays: { HOU: 1, LAL: 1 },
+    HOU: ["amen thompson", "alperen sengun", "jabari smith jr", "reed sheppard", "tari eason", "kevin durant", "steven adams", "clint capela"],
+    LAL: ["lebron james", "deandre ayton", "austin reaves", "rui hachimura", "marcus smart", "max christie", "luka doncic"],
+  },
+
   // HOU @ LAL — Game 6 (LAL leads 3-2) — May 1 @ HOU
   // LAL: AD traded to DAL for Luka (Feb 2025). Ayton signed FA. Reaves GTD.
   //      Luka OUT (hamstring). LeBron active and playing.
@@ -299,9 +324,11 @@ const GAME_ROSTERS = {
 // games dynamically via live scoreboard + tomorrow's via stats scoreboard.
 const TODAYS_GAMES = ["bos-phi-g7"];
 
-// ── MAY 3 (TOMORROW) — TBD until results determine which series advance ──
-// Live /api/schedule will populate this dynamically when teams are set.
-const UPCOMING_GAMES = [];
+// ── MAY 3 (TOMORROW) — Game 7s per ESPN ────────────────────────────────────
+// NBA stats API doesn't post conditional Game 7s until Game 6 confirms the
+// series is tied, so we hardcode them as fallback. Live /api/schedule will
+// override this once the official schedule drops.
+const UPCOMING_GAMES = ["may3-g7-1", "may3-g7-2", "may3-g7-3"];
 
 const PROPS = [
   { id: "points", label: "Points", icon: "🏀", short: "PTS", statKey: p => p.ppg, label3: "PPG" },
