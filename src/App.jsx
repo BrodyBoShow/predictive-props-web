@@ -660,38 +660,30 @@ export default function NBAPropsModel() {
   const [err, setErr] = useState(null);
   const ref = useRef(null);
 
-  // Fetch live schedule from Sportradar via Anthropic API on mount
+  // ── Fetch live schedule from our /api/schedule endpoint ────────────────────
+  // Backend pulls from ESPN's public scoreboard (with NBA stats fallback) so we
+  // get today's live scores + tomorrow's scheduled games (including conditional
+  // Game 7s). Replaces previous Anthropic-API-based approach which required
+  // browser-side API keys and frequently failed.
   useEffect(() => {
     const fetchSchedule = async () => {
       try {
-        const resp = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 800,
-            system: "You have access to live Sportradar NBA data. Return only valid JSON, no markdown.",
-            messages: [{
-              role: "user", content: `Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
-From the live 2026 NBA playoff schedule, return today's games and tomorrow's games.
-Respond ONLY with this JSON structure (no markdown):
-{
-  "today": "Apr 30 2026",
-  "todayGames": [{"id":"game-id","away":"ABBR","home":"ABBR","title":"Game 6","series":"NYK leads 3-2","time":"7:00 PM ET","awayTeam":"Full Name","homeTeam":"Full Name"}],
-  "upcomingGames": [{"id":"game-id","away":"ABBR","home":"ABBR","title":"Game 6","series":"CLE leads 3-2","time":"Fri May 1, 7:30 PM ET","awayTeam":"Full Name","homeTeam":"Full Name"}],
-  "upcomingLabel": "May 1"
-}`}]
-          })
-        });
+        const resp = await fetch(`${API_BASE}/schedule`, { cache: "no-store" });
+        if (!resp.ok) return setLiveSched(false);
         const data = await resp.json();
-        if (data.error) return setLiveSched(false);
-        const txt = data.content?.map(c => c.text || "").join("").trim();
-        const clean = txt.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
-        const parsed = JSON.parse(clean);
-        setLiveSched(parsed);
+        if (!data?.success) return setLiveSched(false);
+        setLiveSched({
+          today:          data.today,
+          todayGames:     data.todayGames || [],
+          upcomingGames:  data.upcomingGames || [],
+          upcomingLabel:  data.upcomingLabel,
+        });
       } catch (e) { setLiveSched(false); }
     };
     fetchSchedule();
+    // Refresh schedule every 5 minutes so live scores + new games update without page reload
+    const interval = setInterval(fetchSchedule, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   // ── Fetch live injury report via Anthropic API with web search ──────────────
