@@ -404,8 +404,9 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
 
   // ── REST DAYS ADJUSTMENT ───────────────────────────────────────────────────
   // Source: NBAsuffer 2025-26 rest days stats. 1d=baseline, 2d=+1.5%, 3d+=+2.0%
+  // Applies to ALL prop types — rest affects every stat category equally.
   let restAdj = 1.0;
-  if (isScoringProp && restDays !== null) {
+  if (restDays !== null) {
     if (restDays >= 3) restAdj = 1.0200;
     else if (restDays === 2) restAdj = 1.0150;
     else restAdj = 1.0000;
@@ -413,9 +414,10 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
 
   // ── ON/OFF DELTA ADJUSTMENT (WOWY) ─────────────────────────────────────────
   // Source: NBA.com On/Off Court Advanced, Playoffs 2025-26
-  // Scale: each 1.0 NETRTG delta ≈ 0.04% scoring impact. Cap ±2.5%.
+  // Scale: each 1.0 NETRTG delta ≈ 0.04% impact. Cap ±2.5%.
+  // Applies to ALL prop types — lineup quality affects assists/rebounds equally.
   let onOffAdj = 1.0;
-  if (isScoringProp && player.onOffDelta !== null && player.onOffDelta !== undefined) {
+  if (player.onOffDelta !== null && player.onOffDelta !== undefined) {
     const rawAdj = player.onOffDelta * 0.0004;
     const cappedAdj = Math.max(-0.025, Math.min(0.025, rawAdj));
     onOffAdj = +(1 + cappedAdj).toFixed(4);
@@ -455,9 +457,10 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
 
   // ── VS OPPONENT ADJUSTMENT ────────────────────────────────────────────────
   // Source: nba_api PlayerGameLog filtered by opponent (PO first, RS fallback)
-  // Ratio of player's historical avg vs this team vs their PO avg, capped ±8%
+  // Ratio of player's historical avg vs this team vs their PO avg, capped ±8%.
+  // Applies to ALL prop types — history vs specific opponent is prop-type agnostic.
   let vsOppAdj = 1.0;
-  if (isScoringProp && propVsOpp !== null && propVsOpp > 0 && propPO > 0 && vsOpponent?.gp >= 2) {
+  if (propVsOpp !== null && propVsOpp > 0 && propPO > 0 && vsOpponent?.gp >= 2) {
     const rawAdj = (propVsOpp / propPO) - 1.0;
     vsOppAdj = +(1 + Math.max(-0.08, Math.min(0.08, rawAdj))).toFixed(4);
   }
@@ -926,7 +929,7 @@ Include only players with confirmed status on today's official report. Status me
   const reset = () => { setResult(null); setErr(null); setPname(""); setPkey(null); setProp(null); setLine(""); setDdOpen(false); };
   const selGame = id => { setGid(id); setPname(""); setPkey(null); setResult(null); setErr(null); setDdOpen(false); };
 
-  const run = useCallback(() => {
+  const run = useCallback(async () => {
     if (!canRun) return;
     setErr(null);
     const l = parseFloat(line);
@@ -940,32 +943,77 @@ Include only players with confirmed status on today's official report. Status me
     const playerScoring  = scoringBreakdown?.[pkey] ?? null;
     const playerClutch   = clutchStats?.[pkey]      ?? null;
     const playerTracking = trackingStats?.[pkey]    ?? null;
+
+    // ── Phase A: client-side projection (instant, no network) ─────────────
     const proj = computeProjection(prop, player, pt, ot, isHome, restDays, effectiveTeamData, recentStats, vsOpponentStats, playerSplits, teamDefense, playerScoring, playerClutch, injuryContext.adj, playerTracking, matchupDelta);
     const edge    = +(proj.adjustedProjection - l).toFixed(2);
     const verdict = Math.abs(edge) < 0.3 ? "push" : edge > 0 ? "over" : "under";
-    // EV % edge = (projection − line) / line × 100 — standard sportsbook edge metric
     const evPct   = l > 0 ? +((proj.adjustedProjection - l) / l * 100).toFixed(2) : 0;
     const absEv   = Math.abs(evPct);
-    // S/A/B/NO BET grading based on EV edge thresholds (user-defined)
     const confGrade = absEv > 12 ? "S-TIER" : absEv > 8 ? "A-TIER" : absEv > 4 ? "B-TIER" : "NO BET";
     const conf      = absEv >= (3/l*100) && player.po.gp >= 4 ? "HIGH" : absEv >= (1.5/l*100) ? "MEDIUM" : "LOW";
-    // Variable impact list: collect all active adjustors, sort by absolute % impact
     const impactList = [
-      { name: "Pace",           impact: (proj.paceAdj - 1) * 100 },
-      { name: "Zone Defense",   impact: (proj.defAdj - 1) * 100 },
+      { name: "Pace",              impact: (proj.paceAdj - 1) * 100 },
+      { name: "Zone Defense",      impact: (proj.defAdj - 1) * 100 },
       { name: `Matchup Δ (L5 ${ot})`, impact: (proj.matchupDeltaAdj - 1) * 100 },
-      { name: `Home/Road`,      impact: (proj.homeAdj - 1) * 100 },
-      { name: "Rest Days",      impact: (proj.restAdj - 1) * 100 },
-      { name: "On/Off NETRTG",  impact: (proj.onOffAdj - 1) * 100 },
-      { name: "TS% Shift",      impact: (proj.tsAdj - 1) * 100 },
-      { name: "3pt Defense",    impact: (proj.fg3DefAdj - 1) * 100 },
-      { name: "Clutch Rate",    impact: (proj.clutchAdj - 1) * 100 },
-      { name: "Injury/USG",     impact: (proj.injAdj - 1) * 100 },
-      { name: `vs ${ot} History`, impact: (proj.vsOppAdj - 1) * 100 },
-      { name: "AST Conv Regress", impact: (proj.astConvAdj - 1) * 100 },
+      { name: "Home/Road",         impact: (proj.homeAdj - 1) * 100 },
+      { name: "Rest Days",         impact: (proj.restAdj - 1) * 100 },
+      { name: "On/Off NETRTG",     impact: (proj.onOffAdj - 1) * 100 },
+      { name: "TS% Shift",         impact: (proj.tsAdj - 1) * 100 },
+      { name: "3pt Defense",       impact: (proj.fg3DefAdj - 1) * 100 },
+      { name: "Clutch Rate",       impact: (proj.clutchAdj - 1) * 100 },
+      { name: "Injury/USG",        impact: (proj.injAdj - 1) * 100 },
+      { name: `vs ${ot} History`,  impact: (proj.vsOppAdj - 1) * 100 },
+      { name: "AST Conv Regress",  impact: (proj.astConvAdj - 1) * 100 },
     ].filter(v => Math.abs(v.impact) > 0.05).sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact));
-    setResult({ player, prop, game, pt, ot, l, proj, verdict, edge, evPct, confGrade, impactList, conf, ptd: effectiveTeamData[pt], otd: effectiveTeamData[ot], isHome, restDays });
-  }, [canRun, game, db, prop, line, pkey, effectiveTeamData, recentStats, vsOpponentStats, homeAwaySplits, teamDefense, scoringBreakdown, clutchStats, injuryContext]);
+
+    // Show client result immediately so user isn't waiting
+    setResult({ player, prop, game, pt, ot, l, proj, verdict, edge, evPct, confGrade, impactList, conf,
+                ptd: effectiveTeamData[pt], otd: effectiveTeamData[ot], isHome, restDays,
+                serverCorr: null }); // serverCorr null = server layer pending
+
+    // ── Phase B: server Correlation Logic Layer (async, enriches the result) ──
+    // Only fires when backend is live — falls back to client result gracefully.
+    if (nbaApiStatus === "live") {
+      try {
+        const ctrl = new AbortController();
+        const tid  = setTimeout(() => ctrl.abort(), 12000); // 12s timeout
+        const resp = await fetch(`${API_BASE}/project`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: ctrl.signal,
+          body: JSON.stringify({
+            player_name:    player.key,
+            prop_type:      prop.id,
+            book_line:      l || null,
+            opponent_abbr:  ot,
+          }),
+        });
+        clearTimeout(tid);
+        if (resp.ok) {
+          const sd = await resp.json();
+          if (sd.success) {
+            // Re-grade using server correlated_projection
+            const sProj   = sd.correlated_projection;
+            const sEdge   = +(sProj - l).toFixed(2);
+            const sVerdict= Math.abs(sEdge) < 0.3 ? "push" : sEdge > 0 ? "over" : "under";
+            const sEvPct  = l > 0 ? +((sProj - l) / l * 100).toFixed(2) : evPct;
+            const sAbsEv  = Math.abs(sEvPct);
+            const sGrade  = sAbsEv > 12 ? "S-TIER" : sAbsEv > 8 ? "A-TIER" : sAbsEv > 4 ? "B-TIER" : "NO BET";
+            // Server drivers replace the client impactList in the terminal panel
+            const serverDrivers = (sd.drivers || []).map(d => ({ name: d, impact: null }));
+            setResult(prev => prev ? { ...prev,
+              verdict: sVerdict, edge: sEdge, evPct: sEvPct, confGrade: sGrade,
+              serverCorr: { projection: sProj, base: sd.base_projection,
+                            evEdge: sd.ev_edge, breakdown: sd.breakdown,
+                            drivers: sd.drivers, dataQuality: sd.data_quality },
+              impactList: serverDrivers.length > 0 ? serverDrivers : prev.impactList,
+            } : prev);
+          }
+        }
+      } catch { /* server layer failed — keep client result unchanged */ }
+    }
+  }, [canRun, game, db, prop, line, pkey, effectiveTeamData, recentStats, vsOpponentStats, homeAwaySplits, teamDefense, scoringBreakdown, clutchStats, injuryContext, nbaApiStatus]);
 
   const exportToExcel = useCallback(() => {
     if (!result) return;
@@ -1159,7 +1207,7 @@ Include only players with confirmed status on today's official report. Status me
         {err && <div className="err">⚠ {err}</div>}
 
         {result && (() => {
-          const { player, prop: pr, game: g, pt, ot, l, proj, verdict, edge, evPct, confGrade, impactList, conf, ptd, otd, isHome, restDays } = result;
+          const { player, prop: pr, game: g, pt, ot, l, proj, verdict, edge, evPct, confGrade, impactList, conf, ptd, otd, isHome, restDays, serverCorr } = result;
           const inj = getInjury(player.key);
           const dname = dn(player.key);
           const ec = verdict === "over" ? "#10b981" : verdict === "under" ? "#ef4444" : "#f59e0b";
@@ -1183,13 +1231,22 @@ Include only players with confirmed status on today's official report. Status me
               <div style={{ background: "#020409", border: `1px solid ${confGradeColor}55`, borderRadius: 10, padding: "14px 18px", marginBottom: 14, fontFamily: "'Azeret Mono', monospace" }}>
                 <div style={{ fontSize: 9, letterSpacing: ".2em", color: confGradeColor, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
                   ▶ PROP EDGE ENGINE v3 — MULTI-VARIATE CORRELATION OUTPUT
-                  {nbaApiStatus === "live" && <span style={{ color: "#10b981", marginLeft: "auto" }}>● LIVE</span>}
+                  {nbaApiStatus === "live" && (
+                    <span style={{ color: serverCorr ? "#10b981" : "#f59e0b", marginLeft: "auto" }}>
+                      {serverCorr ? "● SERVER CORR LIVE" : "⟳ COMPUTING SERVER LAYER..."}
+                    </span>
+                  )}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "4px 0", fontSize: 11, lineHeight: 1.85 }}>
                   <span style={{ color: "#2a3550" }}>PLAYER  │</span>
                   <span style={{ color: "#e8f0ff" }}>{dname} <span style={{ color: "#2a3550" }}>│</span> {pt} vs {ot} <span style={{ color: "#2a3550" }}>│</span> {pr.label.toUpperCase()}</span>
                   <span style={{ color: "#2a3550" }}>PROJ    │</span>
-                  <span style={{ color: "#2563eb", fontWeight: 700, fontSize: 13 }}>{proj.adjustedProjection} {pr.label3}</span>
+                  <span>
+                    <span style={{ color: "#2563eb", fontWeight: 700, fontSize: 13 }}>{serverCorr ? serverCorr.projection : proj.adjustedProjection} {pr.label3}</span>
+                    {serverCorr && serverCorr.base !== proj.adjustedProjection && (
+                      <span style={{ color: "#2a3550", fontSize: 9, marginLeft: 10 }}>client base: {proj.adjustedProjection}</span>
+                    )}
+                  </span>
                   <span style={{ color: "#2a3550" }}>BOOK    │</span>
                   <span style={{ color: "#c8d4e8" }}>{l} O/U  <span style={{ color: edge > 0 ? "#10b981" : "#ef4444", marginLeft: 8 }}>{edge > 0 ? "▲" : "▼"} {Math.abs(edge)} {pr.label3} {verdict.toUpperCase()}</span></span>
                   <span style={{ color: "#2a3550" }}>EV EDGE │</span>
@@ -1202,15 +1259,46 @@ Include only players with confirmed status on today's official report. Status me
                     </span>
                   </span>
                 </div>
-                {impactList.length > 0 && (
+
+                {/* Server Correlation Layer breakdown */}
+                {serverCorr && serverCorr.breakdown && (
+                  <div style={{ borderTop: "1px solid rgba(42,53,80,.6)", marginTop: 10, paddingTop: 8 }}>
+                    <div style={{ fontSize: 9, color: "#a855f7", letterSpacing: ".15em", marginBottom: 6 }}>SERVER CORRELATION LAYER:</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 12px", fontSize: 9 }}>
+                      {[
+                        ["AST Conv", serverCorr.breakdown.astConvAdj, "pts"],
+                        ["Matchup Δ", serverCorr.breakdown.matchupAdj, "%"],
+                        ["Shot Profile", serverCorr.breakdown.shotProfileAdj, "pts"],
+                        ["Reb Realization", serverCorr.breakdown.hustleAdj, "reb"],
+                      ].map(([label, val, unit]) => val !== 0 && val !== null && (
+                        <span key={label} style={{ color: val > 0 ? "#10b981" : "#ef4444" }}>
+                          {label}: {val > 0 ? "+" : ""}{typeof val === "number" ? val.toFixed(2) : val}{unit}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Drivers — server text explanations when available, else client % impacts */}
+                {(serverCorr?.drivers?.length > 0 || impactList.length > 0) && (
                   <div style={{ borderTop: "1px solid rgba(255,255,255,.04)", marginTop: 10, paddingTop: 8 }}>
-                    <div style={{ fontSize: 9, color: "#2a3550", letterSpacing: ".15em", marginBottom: 6 }}>VARIABLE IMPACT (top drivers):</div>
-                    {impactList.slice(0, 4).map((v, i) => (
-                      <div key={i} style={{ fontSize: 10, color: Math.abs(v.impact) < 0.1 ? "#2a3550" : v.impact > 0 ? "#10b981" : "#ef4444", marginBottom: 2, display: "flex", gap: 8 }}>
-                        <span style={{ minWidth: 52 }}>[{v.impact > 0 ? "+" : ""}{v.impact.toFixed(2)}%]</span>
-                        <span>{v.name}</span>
-                      </div>
-                    ))}
+                    <div style={{ fontSize: 9, color: "#2a3550", letterSpacing: ".15em", marginBottom: 6 }}>
+                      {serverCorr ? "CORRELATION DRIVERS (server-computed):" : "VARIABLE IMPACT (top drivers):"}
+                    </div>
+                    {serverCorr ? (
+                      serverCorr.drivers.map((d, i) => (
+                        <div key={i} style={{ fontSize: 9.5, color: d.includes("COLD") || d.includes("MISMATCH") || d.includes("TIGHTENING") ? "#ef4444" : d.includes("HOT") || d.includes("BOOST") || d.includes("SOFTENING") || d.includes("ABOVE") ? "#10b981" : "#64748b", marginBottom: 4, lineHeight: 1.5 }}>
+                          › {d}
+                        </div>
+                      ))
+                    ) : (
+                      impactList.slice(0, 4).map((v, i) => (
+                        <div key={i} style={{ fontSize: 10, color: v.impact > 0 ? "#10b981" : "#ef4444", marginBottom: 2, display: "flex", gap: 8 }}>
+                          <span style={{ minWidth: 52 }}>[{v.impact > 0 ? "+" : ""}{v.impact.toFixed(2)}%]</span>
+                          <span>{v.name}</span>
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
               </div>
