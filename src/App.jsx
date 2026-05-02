@@ -270,6 +270,18 @@ const GAME_ROSTERS = {
     TOR: ["scottie barnes", "brandon ingram", "rj barrett", "immanuel quickley", "jakob poeltl", "gradey dick", "jamal shead", "jakobe walter", "collin murray-boyles", "sandro mamukelashvili"]
   },
 
+  // ── MAY 2 CONFIRMED ───────────────────────────────────────────────────────
+  // PHI @ BOS — Game 7 (series tied 3-3) — PHI won G6 at home, G7 at BOS (HCA)
+  // Confirmed: ESPN May 1, 4:30 PM MT / 6:30 PM ET, NBC/Peacock
+  // Embiid: PROB (appendectomy recovery, per DK Network Apr 30)
+  "bos-phi-g7": {
+    home: "BOS", away: "PHI", homeTeam: "Boston Celtics", awayTeam: "Philadelphia 76ers",
+    time: "May 2, 6:30 PM ET", title: "Game 7", series: "Series tied 3-3",
+    restDays: { BOS: 1, PHI: 1 },
+    BOS: ["jayson tatum", "jaylen brown", "payton pritchard", "derrick white", "nikola vucevic", "sam hauser"],
+    PHI: ["joel embiid", "tyrese maxey", "paul george", "quentin grimes", "kelly oubre jr", "vj edgecombe", "kyle lowry", "andre drummond", "trendon watford"],
+  },
+
   // HOU @ LAL — Game 6 (LAL leads 3-2) — May 1 @ HOU
   // LAL: AD traded to DAL for Luka (Feb 2025). Ayton signed FA. Reaves GTD.
   //      Luka OUT (hamstring). LeBron active and playing.
@@ -283,7 +295,11 @@ const GAME_ROSTERS = {
   },
 };
 const TODAYS_GAMES = ["0f33197a", "560d20d6", "2b36e831"]; // May 1: DET@ORL, CLE@TOR, HOU@LAL
-const UPCOMING_GAMES = []; // No confirmed upcoming games yet
+
+// ── MAY 2 CONFIRMED (ESPN verified May 1 2026) ────────────────────────────
+// PHI won Game 6 at PHI to tie series 3-3 → Game 7 at BOS (higher seed HCA)
+// BOS@PHI G7 static key used as stable fallback until NBA stats API posts May 2 schedule
+const UPCOMING_GAMES = ["bos-phi-g7"];
 
 const PROPS = [
   { id: "points", label: "Points", icon: "🏀", short: "PTS", statKey: p => p.ppg, label3: "PPG" },
