@@ -294,12 +294,14 @@ const GAME_ROSTERS = {
     HOU: ["amen thompson", "alperen sengun", "jabari smith jr", "reed sheppard", "tari eason", "kevin durant", "steven adams", "clint capela"]
   },
 };
-const TODAYS_GAMES = ["0f33197a", "560d20d6", "2b36e831"]; // May 1: DET@ORL, CLE@TOR, HOU@LAL
+// ── MAY 2 (TODAY) — PHI@BOS Game 7 confirmed; live schedule API takes priority ──
+// Static fallback only used if /api/schedule fails. Live API now returns today's
+// games dynamically via live scoreboard + tomorrow's via stats scoreboard.
+const TODAYS_GAMES = ["bos-phi-g7"];
 
-// ── MAY 2 CONFIRMED (ESPN verified May 1 2026) ────────────────────────────
-// PHI won Game 6 at PHI to tie series 3-3 → Game 7 at BOS (higher seed HCA)
-// BOS@PHI G7 static key used as stable fallback until NBA stats API posts May 2 schedule
-const UPCOMING_GAMES = ["bos-phi-g7"];
+// ── MAY 3 (TOMORROW) — TBD until results determine which series advance ──
+// Live /api/schedule will populate this dynamically when teams are set.
+const UPCOMING_GAMES = [];
 
 const PROPS = [
   { id: "points", label: "Points", icon: "🏀", short: "PTS", statKey: p => p.ppg, label3: "PPG" },
@@ -1034,6 +1036,12 @@ Include only players with confirmed status on today's official report. Status me
             prop_type:      prop.id,
             book_line:      l || null,
             opponent_abbr:  ot,
+            // ── Verified context for server correlation engine ──
+            team_abbr:      pt,
+            is_home:        isHome,
+            rest_days:      typeof restDays === "number" ? restDays : null,
+            l5_avg:         proj.propRecent ?? null,           // client-computed L5 PO avg
+            high_leverage:  /game\s*7|elimination|finals/i.test(game?.title || ""),
           }),
         });
         clearTimeout(tid);
