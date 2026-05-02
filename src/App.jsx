@@ -801,17 +801,48 @@ Include only players with confirmed status on today's official report. Status me
     return () => { cancelled = true; };
   }, []);
 
-  // Merge live schedule metadata into static rosters using useMemo (correct hook for derived values)
+  // Merge live schedule into rosters — update existing static entries AND add new dynamic games
   const activeRosters = useMemo(() => {
     const base = { ...GAME_ROSTERS };
     if (!liveSched || liveSched === false) return base;
     [...(liveSched.todayGames || []), ...(liveSched.upcomingGames || [])].forEach(lg => {
+      if (!lg?.id) return;
       if (base[lg.id]) {
-        base[lg.id] = { ...base[lg.id], series: lg.series || base[lg.id].series, time: lg.time || base[lg.id].time, title: lg.title || base[lg.id].title };
+        // Update metadata on existing static entry
+        base[lg.id] = { ...base[lg.id],
+          series: lg.series || base[lg.id].series,
+          time:   lg.time   || base[lg.id].time,
+          title:  lg.title  || base[lg.id].title,
+        };
+        // Overlay dynamic rosters if static ones are empty
+        if (lg.home && (!base[lg.id][lg.home] || base[lg.id][lg.home].length === 0))
+          base[lg.id][lg.home] = lg[lg.home] || [];
+        if (lg.away && (!base[lg.id][lg.away] || base[lg.id][lg.away].length === 0))
+          base[lg.id][lg.away] = lg[lg.away] || [];
+      } else if (lg.home && lg.away) {
+        // Brand-new game (tomorrow or round 2+) — build entry from live data
+        base[lg.id] = {
+          home: lg.home, away: lg.away,
+          homeTeam: lg.homeTeam || lg.home,
+          awayTeam: lg.awayTeam || lg.away,
+          time: lg.time || "TBD", title: lg.title || "Playoff Game",
+          series: lg.series || "",
+          restDays: lg.restDays || {},
+          [lg.home]: lg[lg.home] || [],
+          [lg.away]: lg[lg.away] || [],
+        };
       }
     });
     return base;
   }, [liveSched]);
+
+  // Dynamic game ID lists — driven by live schedule when available, static fallback otherwise
+  const activeTodayIds    = useMemo(() =>
+    liveSched?.todayGames?.length    > 0 ? liveSched.todayGames.map(g => g.id)    : TODAYS_GAMES,
+  [liveSched]);
+  const activeUpcomingIds = useMemo(() =>
+    liveSched?.upcomingGames?.length > 0 ? liveSched.upcomingGames.map(g => g.id) : UPCOMING_GAMES,
+  [liveSched]);
   // Merge live NBA.com stats over static PLAYER_DB — live takes priority for rs/po, static kept for pos/onOffDelta
   const effectiveDB = useMemo(() => {
     if (!livePlayerDB) return PLAYER_DB;
@@ -843,7 +874,7 @@ Include only players with confirmed status on today's official report. Status me
     if (!pkey || !gid) return;
     const player = effectiveDB[pkey];
     if (!player?.pid) return;
-    const g = GAME_ROSTERS[gid];
+    const g = activeRosters[gid];
     if (!g) return;
     const opp = player.team === g.home ? g.away : g.home;
     Promise.all([
@@ -1113,8 +1144,8 @@ Include only players with confirmed status on today's official report. Status me
           <div className="slabel">01 — Select Game</div>
           <div className="card">
             <div className="ggl">● TONIGHT — {todayStr}</div>
-            <div className="glist">{TODAYS_GAMES.map(id => {
-              const g = GAME_ROSTERS[id]; return (
+            <div className="glist">{activeTodayIds.map(id => {
+              const g = activeRosters[id]; if (!g) return null; return (
                 <div key={id} className={`grow ${gid === id ? "sel" : ""}`} onClick={() => selGame(id)}>
                   <div><div className="gteams">{g.away}<span className="gvs">@</span>{g.home}</div><div className="gmeta">{g.awayTeam} @ {g.homeTeam} · {g.title} · {g.series}</div></div>
                   <div className="gtime">{etToLocal(g.time)}</div>
@@ -1122,14 +1153,14 @@ Include only players with confirmed status on today's official report. Status me
               );
             })}</div>
             <div className="ggl up">◎ UPCOMING — {upcomingStr}</div>
-            <div className="glist">{UPCOMING_GAMES.map(id => {
-              const g = GAME_ROSTERS[id]; return (
+            <div className="glist">{activeUpcomingIds.length > 0 ? activeUpcomingIds.map(id => {
+              const g = activeRosters[id]; if (!g) return null; return (
                 <div key={id} className={`grow ${gid === id ? "sel" : ""}`} onClick={() => selGame(id)}>
                   <div><div className="gteams">{g.away}<span className="gvs">@</span>{g.home}</div><div className="gmeta">{g.awayTeam} @ {g.homeTeam} · {g.title} · {g.series}</div></div>
                   <div className="gtime up">{etToLocal(g.time)}</div>
                 </div>
               );
-            })}</div>
+            }) : <div style={{color:"#2a3550",fontSize:11,padding:"10px 12px"}}>No games confirmed for tomorrow yet.</div>}</div>
           </div>
         </div>
 
