@@ -1303,8 +1303,8 @@ Include only players with confirmed status on today's official report. Status me
                   <span style={{ color: "#2a3550" }}>PROJ    │</span>
                   <span>
                     <span style={{ color: "#2563eb", fontWeight: 700, fontSize: 13 }}>{serverCorr ? serverCorr.projection : proj.adjustedProjection} {pr.label3}</span>
-                    {serverCorr && serverCorr.base !== proj.adjustedProjection && (
-                      <span style={{ color: "#2a3550", fontSize: 9, marginLeft: 10 }}>client base: {proj.adjustedProjection}</span>
+                    {serverCorr && (
+                      <span style={{ color: "#2a3550", fontSize: 9, marginLeft: 10 }}>baseline: {serverCorr.base} (PO×0.4 + RS×0.25 + L5×0.35)</span>
                     )}
                   </span>
                   <span style={{ color: "#2a3550" }}>BOOK    │</span>
