@@ -193,7 +193,7 @@ const INJURIES = {
   "aaron gordon": { status: "GTD", detail: "Calf — questionable for Game 6 (DK Network Apr 30 report)" },
   "bones hyland": { status: "GTD", detail: "Knee — questionable for Game 6 (DK Network Apr 30 report)" },
   "austin reaves": { status: "GTD", detail: "Left oblique muscle strain — day-to-day (ESPN Shams)" },
-  "franz wagner": { status: "GTD", detail: "Calf — game-time decision" },
+  "franz wagner": { status: "OUT", detail: "Calf strain — confirmed OUT (ESPN May 3 2026)" },
   // ── Probable ──────────────────────────────────────────────────────────────
   "joel embiid": { status: "PROB", detail: "Appendectomy recovery — probable Game 6 (DK Network Apr 30 report)" },
 };
@@ -658,7 +658,28 @@ export default function NBAPropsModel() {
   const [ddOpen, setDdOpen] = useState(false);
   const [result, setResult] = useState(null);
   const [err, setErr] = useState(null);
+  const [actualInput, setActualInput] = useState("");
   const ref = useRef(null);
+
+  // ── Residual learning — localStorage stores actual outcomes per player/prop ──
+  // Enables the model to learn its systematic bias over time (no server needed).
+  // Projection/actual pairs sent to /api/project → server applies Adjustment 14.
+  const getResiduals = useCallback((playerKey, propId) => {
+    try {
+      const raw = localStorage.getItem(`res_${playerKey}_${propId}`);
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  }, []);
+
+  const saveResidual = useCallback((playerKey, propId, projected, actual) => {
+    try {
+      const key  = `res_${playerKey}_${propId}`;
+      const prev = (() => { try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch { return []; } })();
+      const entry = { projected: +projected.toFixed(2), actual: +parseFloat(actual).toFixed(2), date: new Date().toISOString().slice(0, 10) };
+      const updated = [...prev, entry].slice(-20); // keep last 20 samples
+      localStorage.setItem(key, JSON.stringify(updated));
+    } catch {}
+  }, []);
 
   // ── Fetch live schedule from our /api/schedule endpoint ────────────────────
   // Backend pulls from ESPN's public scoreboard (with NBA stats fallback) so we
@@ -686,36 +707,36 @@ export default function NBAPropsModel() {
     return () => clearInterval(interval);
   }, []);
 
-  // ── Fetch live injury report via Anthropic API with web search ──────────────
-  // Pulls today's official NBA injury report, merges with static INJURIES baseline
+  // ── Fetch live injury report from /api/injuries endpoint ───────────────────
+  // Backend merges ESPN live injury feed + static _INJURY_OVERRIDES (manually verified).
+  // No browser API keys required — no AI hallucination possible.
+  // Static overrides always win: Franz Wagner OUT, KD OUT, etc. are authoritative.
   useEffect(() => {
     const fetchInjuries = async () => {
       try {
-        const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-        const resp = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 1000,
-            tools: [{ type: "web_search_20250305", name: "web_search" }],
-            system: "You provide NBA injury data only. Search for today's official NBA injury report and return ONLY valid JSON with no markdown. Be conservative — only include players with confirmed official status from the NBA injury report or verified ESPN/Shams Charania reports.",
-            messages: [{
-              role: "user", content: `Today is ${today}. Search for the official NBA playoff injury report for today. Return ONLY this JSON (no markdown, no explanation):
-{"updated":"${today}","injuries":{"player name lowercase":{"status":"OUT|GTD|PROB|IN","detail":"injury description — source"}}}
-Include only players with confirmed status on today's official report. Status meanings: OUT=will not play, GTD=game-time decision/questionable, PROB=probable, IN=cleared/available.`}]
-          })
-        });
+        const resp = await fetch(`${API_BASE}/injuries`, { cache: "no-store" });
+        if (!resp.ok) { setLiveInjuries(false); return; }
         const data = await resp.json();
-        if (data.error) { setLiveInjuries(false); return; }
-        const txt = data.content?.filter(c => c.type === "text").map(c => c.text).join("").trim();
-        if (!txt) { setLiveInjuries(false); return; }
-        const clean = txt.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
-        const parsed = JSON.parse(clean);
-        setLiveInjuries(parsed);
+        if (!data?.success) { setLiveInjuries(false); return; }
+        // Normalize ESPN status strings → our format (OUT/GTD/PROB)
+        const normalized = {};
+        for (const [name, info] of Object.entries(data.injuries || {})) {
+          const s = (info.status || "").toLowerCase();
+          normalized[name] = {
+            ...info,
+            status: s.includes("out") || s === "out" ? "OUT"
+                  : s.includes("questionable") || s.includes("gtd") ? "GTD"
+                  : s.includes("probable") ? "PROB"
+                  : info.status,
+          };
+        }
+        setLiveInjuries({ injuries: normalized, updated: data.updated });
       } catch (e) { setLiveInjuries(false); }
     };
     fetchInjuries();
+    // Refresh every 10 minutes so late scratches are caught
+    const interval = setInterval(fetchInjuries, 10 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   // ── Fetch all NBA.com data from Render backend (9 endpoints cached server-side) ──
@@ -972,7 +993,7 @@ Include only players with confirmed status on today's official report. Status me
   const byTeam = {};
   filtered.forEach(p => { if (!byTeam[p.team]) byTeam[p.team] = []; byTeam[p.team].push(p); });
 
-  const reset = () => { setResult(null); setErr(null); setPname(""); setPkey(null); setProp(null); setLine(""); setDdOpen(false); };
+  const reset = () => { setResult(null); setErr(null); setPname(""); setPkey(null); setProp(null); setLine(""); setDdOpen(false); setActualInput(""); };
   const selGame = id => { setGid(id); setPname(""); setPkey(null); setResult(null); setErr(null); setDdOpen(false); };
 
   const run = useCallback(async () => {
@@ -1039,6 +1060,8 @@ Include only players with confirmed status on today's official report. Status me
             rest_days:      typeof restDays === "number" ? restDays : null,
             l5_avg:         proj.propRecent ?? null,           // client-computed L5 PO avg
             high_leverage:  /game\s*7|elimination|finals/i.test(game?.title || ""),
+            // ── Residual calibration — historical projection/actual pairs from localStorage ──
+            prior_residuals: getResiduals(player.key, prop.id),
           }),
         });
         clearTimeout(tid);
@@ -1065,7 +1088,7 @@ Include only players with confirmed status on today's official report. Status me
         }
       } catch { /* server layer failed — keep client result unchanged */ }
     }
-  }, [canRun, game, db, prop, line, pkey, effectiveTeamData, recentStats, vsOpponentStats, homeAwaySplits, teamDefense, scoringBreakdown, clutchStats, injuryContext, nbaApiStatus]);
+  }, [canRun, game, db, prop, line, pkey, effectiveTeamData, recentStats, vsOpponentStats, homeAwaySplits, teamDefense, scoringBreakdown, clutchStats, injuryContext, nbaApiStatus, getResiduals]);
 
   const exportToExcel = useCallback(() => {
     if (!result) return;
@@ -1156,7 +1179,7 @@ Include only players with confirmed status on today's official report. Status me
           <h1>PROP<br /><span>EDGE</span></h1>
           <div className="dbanner">
             ALL DATA VERIFIED · ZERO AI GUESSING · {todayStr.toUpperCase()}
-            {" "}{liveInjuries === null ? "· ⟳ LOADING INJURIES..." : liveInjuries === false ? "· INJURIES OFFLINE" : liveInjuries?.updated ? `· ✓ INJURIES LIVE (${liveInjuries.updated})` : ""}
+            {" "}{liveInjuries === null ? "· ⟳ LOADING INJURIES..." : liveInjuries === false ? "· INJURIES OFFLINE" : liveInjuries?.updated ? `· ✓ INJURIES LIVE (${liveInjuries.updated})` : "· ✓ INJURIES LIVE"}
             {" "}{nbaApiStatus === "loading" ? "· ⟳ NBA.COM..." : nbaApiStatus === "warming" ? "· ⟳ WARMING SERVER (retrying)..." : nbaApiStatus === "live" ? "· ✓ NBA.COM LIVE" : "· ◎ STATIC STATS"}
           </div>
         </div>
@@ -1315,16 +1338,30 @@ Include only players with confirmed status on today's official report. Status me
                 {/* Server Correlation Layer breakdown */}
                 {serverCorr && serverCorr.breakdown && (
                   <div style={{ borderTop: "1px solid rgba(42,53,80,.6)", marginTop: 10, paddingTop: 8 }}>
-                    <div style={{ fontSize: 9, color: "#a855f7", letterSpacing: ".15em", marginBottom: 6 }}>SERVER CORRELATION LAYER:</div>
+                    <div style={{ fontSize: 9, color: "#a855f7", letterSpacing: ".15em", marginBottom: 6 }}>
+                      SERVER CORRELATION LAYER (14 factors):
+                      {serverCorr.breakdown.residualN > 0 && (
+                        <span style={{ color: "#10b981", marginLeft: 8 }}>● CALIBRATED ({serverCorr.breakdown.residualN} samples)</span>
+                      )}
+                    </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 12px", fontSize: 9 }}>
                       {[
-                        ["AST Conv", serverCorr.breakdown.astConvAdj, "pts"],
-                        ["Matchup Δ", serverCorr.breakdown.matchupAdj, "%"],
-                        ["Shot Profile", serverCorr.breakdown.shotProfileAdj, "pts"],
-                        ["Reb Realization", serverCorr.breakdown.hustleAdj, "reb"],
-                      ].map(([label, val, unit]) => val !== 0 && val !== null && (
+                        ["AST Conv",        serverCorr.breakdown.astConvAdj,       "pts"],
+                        ["Matchup Δ",       serverCorr.breakdown.matchupAdj,       "%"],
+                        ["Shot Profile",    serverCorr.breakdown.shotProfileAdj,   "pts"],
+                        ["Reb Realize",     serverCorr.breakdown.hustleAdj,        "reb"],
+                        ["Pace",            serverCorr.breakdown.paceAdj,          "%"],
+                        ["Rest",            serverCorr.breakdown.restAdj,          "%"],
+                        ["Home/Road",       serverCorr.breakdown.splitsAdj,        "%"],
+                        ["Clutch",          serverCorr.breakdown.clutchAdj,        "pts"],
+                        ["Usage×TS%",       serverCorr.breakdown.usageAdj,         "%"],
+                        ["PO Form",         serverCorr.breakdown.playoffFormAdj,   "%"],
+                        ["Def Tier",        serverCorr.breakdown.defMatchAdj,      "%"],
+                        ["Inj Cascade",     serverCorr.breakdown.injCascadeAdj,    "%"],
+                        ["Residual Cal",    serverCorr.breakdown.residualCalibAdj, "%"],
+                      ].filter(([, val]) => val !== 0 && val !== null && val !== undefined).map(([label, val, unit]) => (
                         <span key={label} style={{ color: val > 0 ? "#10b981" : "#ef4444" }}>
-                          {label}: {val > 0 ? "+" : ""}{typeof val === "number" ? val.toFixed(2) : val}{unit}
+                          {label}: {val > 0 ? "+" : ""}{typeof val === "number" ? val.toFixed(unit === "pts" || unit === "reb" ? 2 : 1) : val}{unit}
                         </span>
                       ))}
                     </div>
@@ -1339,7 +1376,13 @@ Include only players with confirmed status on today's official report. Status me
                     </div>
                     {serverCorr ? (
                       serverCorr.drivers.map((d, i) => (
-                        <div key={i} style={{ fontSize: 9.5, color: d.includes("COLD") || d.includes("MISMATCH") || d.includes("TIGHTENING") ? "#ef4444" : d.includes("HOT") || d.includes("BOOST") || d.includes("SOFTENING") || d.includes("ABOVE") ? "#10b981" : "#64748b", marginBottom: 4, lineHeight: 1.5 }}>
+                        <div key={i} style={{ fontSize: 9.5, color:
+                          d.includes("COLD") || d.includes("MISMATCH") || d.includes("Uncertainty") || d.includes("under-projected") || d.includes("over-projected")
+                            ? "#ef4444"
+                          : d.includes("HOT") || d.includes("BOOST") || d.includes("Cascade") || d.includes("SOFTENING") || d.includes("ABOVE") || d.includes("Residual") || d.includes("under-projected")
+                            ? "#10b981"
+                          : "#64748b",
+                          marginBottom: 4, lineHeight: 1.5 }}>
                           › {d}
                         </div>
                       ))
@@ -1354,6 +1397,59 @@ Include only players with confirmed status on today's official report. Status me
                   </div>
                 )}
               </div>
+
+              {/* ── Record Actual — log real outcome to calibrate future projections ── */}
+              {(() => {
+                const residuals = getResiduals(player.key, pr.id);
+                const n = residuals.length;
+                return (
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+                    {result.actualLogged !== undefined ? (
+                      <div style={{ fontFamily: "'Azeret Mono',monospace", fontSize: 10, color: "#10b981",
+                        background: "rgba(16,185,129,.08)", border: "1px solid rgba(16,185,129,.2)",
+                        borderRadius: 6, padding: "6px 12px", display: "flex", gap: 10, alignItems: "center" }}>
+                        <span>✓ LOGGED {result.actualLogged} {pr.label3}</span>
+                        <span style={{ color: "#3a4a62" }}>│</span>
+                        <span style={{ color: "#3a4a62" }}>MODEL NOW HAS {n} SAMPLE{n !== 1 ? "S" : ""} — RESIDUAL CALIBRATION {n >= 3 ? "ACTIVE" : "NEEDS " + (3 - n) + " MORE"}</span>
+                      </div>
+                    ) : (
+                      <>
+                        <input
+                          type="number" step="0.5" min="0"
+                          placeholder={`Log actual ${pr.label3}...`}
+                          value={actualInput}
+                          onChange={e => setActualInput(e.target.value)}
+                          style={{ width: 170, padding: "7px 12px", background: "rgba(255,255,255,.04)",
+                            border: "1px solid rgba(255,255,255,.1)", borderRadius: 6, color: "#c8d4e8",
+                            fontSize: 13, fontFamily: "'Azeret Mono',monospace", outline: "none" }}
+                        />
+                        <button
+                          disabled={!actualInput || isNaN(parseFloat(actualInput))}
+                          onClick={() => {
+                            const actual = parseFloat(actualInput);
+                            if (!isNaN(actual) && actual >= 0) {
+                              const proj2 = serverCorr?.projection ?? proj.adjustedProjection;
+                              saveResidual(player.key, pr.id, proj2, actual);
+                              setResult(prev => ({ ...prev, actualLogged: actual }));
+                              setActualInput("");
+                            }
+                          }}
+                          style={{ padding: "7px 14px", background: "rgba(16,185,129,.12)",
+                            border: "1px solid rgba(16,185,129,.25)", borderRadius: 6, color: "#10b981",
+                            cursor: "pointer", fontSize: 10, fontFamily: "'Azeret Mono',monospace",
+                            letterSpacing: ".1em", opacity: actualInput ? 1 : 0.4 }}>
+                          SAVE ✓
+                        </button>
+                        {n > 0 && (
+                          <span style={{ fontFamily: "'Azeret Mono',monospace", fontSize: 9, color: n >= 3 ? "#10b981" : "#f59e0b" }}>
+                            {n >= 3 ? `● ${n} samples — calibrated` : `◎ ${n} sample${n > 1 ? "s" : ""} — need ${3 - n} more`}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
 
               {inj && <div className={`injb ${inj.status === "GTD" || inj.status === "PROB" ? "gtd" : ""}`}>
                 {inj.status === "PROB" ? "📋" : "⚠"} {dname} — {inj.status}: {inj.detail}
