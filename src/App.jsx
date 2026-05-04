@@ -659,6 +659,7 @@ export default function NBAPropsModel() {
   const [result, setResult] = useState(null);
   const [err, setErr] = useState(null);
   const [actualInput, setActualInput] = useState("");
+  const [showMath, setShowMath] = useState(false);
   const ref = useRef(null);
 
   // ── Residual learning — localStorage stores actual outcomes per player/prop ──
@@ -1344,67 +1345,6 @@ export default function NBAPropsModel() {
                   </span>
                 </div>
 
-                {/* Server Correlation Layer breakdown */}
-                {serverCorr && serverCorr.breakdown && (
-                  <div style={{ borderTop: "1px solid rgba(42,53,80,.6)", marginTop: 10, paddingTop: 8 }}>
-                    <div style={{ fontSize: 9, color: "#a855f7", letterSpacing: ".15em", marginBottom: 6 }}>
-                      SERVER CORRELATION LAYER (14 factors):
-                      {serverCorr.breakdown.residualN > 0 && (
-                        <span style={{ color: "#10b981", marginLeft: 8 }}>● CALIBRATED ({serverCorr.breakdown.residualN} samples)</span>
-                      )}
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 12px", fontSize: 9 }}>
-                      {[
-                        ["AST Conv",        serverCorr.breakdown.astConvAdj,       "pts"],
-                        ["Matchup Δ",       serverCorr.breakdown.matchupAdj,       "%"],
-                        ["Shot Profile",    serverCorr.breakdown.shotProfileAdj,   "pts"],
-                        ["Reb Realize",     serverCorr.breakdown.hustleAdj,        "reb"],
-                        ["Pace",            serverCorr.breakdown.paceAdj,          "%"],
-                        ["Rest",            serverCorr.breakdown.restAdj,          "%"],
-                        ["Home/Road",       serverCorr.breakdown.splitsAdj,        "%"],
-                        ["Clutch",          serverCorr.breakdown.clutchAdj,        "pts"],
-                        ["Usage×TS%",       serverCorr.breakdown.usageAdj,         "%"],
-                        ["PO Form",         serverCorr.breakdown.playoffFormAdj,   "%"],
-                        ["Def Tier",        serverCorr.breakdown.defMatchAdj,      "%"],
-                        ["Inj Cascade",     serverCorr.breakdown.injCascadeAdj,    "%"],
-                        ["Residual Cal",    serverCorr.breakdown.residualCalibAdj, "%"],
-                      ].filter(([, val]) => val !== 0 && val !== null && val !== undefined).map(([label, val, unit]) => (
-                        <span key={label} style={{ color: val > 0 ? "#10b981" : "#ef4444" }}>
-                          {label}: {val > 0 ? "+" : ""}{typeof val === "number" ? val.toFixed(unit === "pts" || unit === "reb" ? 2 : 1) : val}{unit}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Drivers — server text explanations when available, else client % impacts */}
-                {(serverCorr?.drivers?.length > 0 || impactList.length > 0) && (
-                  <div style={{ borderTop: "1px solid rgba(255,255,255,.04)", marginTop: 10, paddingTop: 8 }}>
-                    <div style={{ fontSize: 9, color: "#2a3550", letterSpacing: ".15em", marginBottom: 6 }}>
-                      {serverCorr ? "CORRELATION DRIVERS (server-computed):" : "VARIABLE IMPACT (top drivers):"}
-                    </div>
-                    {serverCorr ? (
-                      serverCorr.drivers.map((d, i) => (
-                        <div key={i} style={{ fontSize: 9.5, color:
-                          d.includes("COLD") || d.includes("MISMATCH") || d.includes("Uncertainty") || d.includes("under-projected") || d.includes("over-projected")
-                            ? "#ef4444"
-                          : d.includes("HOT") || d.includes("BOOST") || d.includes("Cascade") || d.includes("SOFTENING") || d.includes("ABOVE") || d.includes("Residual") || d.includes("under-projected")
-                            ? "#10b981"
-                          : "#64748b",
-                          marginBottom: 4, lineHeight: 1.5 }}>
-                          › {d}
-                        </div>
-                      ))
-                    ) : (
-                      impactList.slice(0, 4).map((v, i) => (
-                        <div key={i} style={{ fontSize: 10, color: v.impact > 0 ? "#10b981" : "#ef4444", marginBottom: 2, display: "flex", gap: 8 }}>
-                          <span style={{ minWidth: 52 }}>[{v.impact > 0 ? "+" : ""}{v.impact.toFixed(2)}%]</span>
-                          <span>{v.name}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
               </div>
 
               {/* ── Record Actual — log real outcome to calibrate future projections ── */}
@@ -1466,6 +1406,7 @@ export default function NBAPropsModel() {
               </div>}
 
 
+              {/* ── Stat baseline cards (always visible) ── */}
               <div className="sr">
                 <div className="sb"><div className="sbl">RS AVG · {proj.propRecent !== null ? "25%" : "40%"} wt</div><div className="sbv">{proj.propRS}</div><div className="sbs">{player.rs.gp}g · {pr.label3}</div></div>
                 <div className="sb"><div className="sbl">PO AVG · {proj.propRecent !== null ? "40%" : "60%"} wt</div><div className="sbv">{proj.propPO}</div><div className="sbs">{player.po.gp}g · {pr.label3}</div></div>
@@ -1474,174 +1415,289 @@ export default function NBAPropsModel() {
                 <div className="sb hi"><div className="sbl">BLENDED BASE</div><div className="sbv bl">{proj.blended}</div><div className="sbs">{proj.propRecent !== null ? "PO×0.4+RS×0.25+L5×0.35" : "PO×0.6+RS×0.4"}</div></div>
               </div>
 
-              <div className="mb">
-                <div className="mbt">{serverCorr ? "BASELINE ESTIMATE (client-side)" : "PROJECTION MATH — ALL VERIFIED DATA"}</div>
-                {serverCorr && (
-                  <div style={{ background: "rgba(37,99,235,.06)", border: "1px solid rgba(37,99,235,.2)", borderRadius: 6, padding: "8px 12px", marginBottom: 10, fontFamily: "'Azeret Mono',monospace", fontSize: 10 }}>
-                    <span style={{ color: "#2a3550" }}>CLIENT BASELINE: </span>
-                    <span style={{ color: "#c8d4e8" }}>{proj.blended} → {proj.adjustedProjection} {pr.label3}</span>
-                    <span style={{ color: "#2a3550", marginLeft: 10 }}>→ SERVER 14-FACTOR OUTPUT: </span>
-                    <span style={{ color: "#2563eb", fontWeight: 700, fontSize: 13 }}>{finalProj} {pr.label3} ← FINAL</span>
+              {/* ── BIG RESULT — Final projection + EV% always prominent ── */}
+              <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                {/* FINAL PROJECTION */}
+                <div style={{ flex: "2 1 180px", background: "rgba(37,99,235,.08)", border: "2px solid rgba(37,99,235,.4)", borderRadius: 14, padding: "20px 24px", textAlign: "center" }}>
+                  <div style={{ fontSize: 9, letterSpacing: ".18em", color: "#2563eb", marginBottom: 6, fontFamily: "'Azeret Mono',monospace" }}>
+                    FINAL PROJECTION {serverCorr ? "· SERVER CORR" : "· CLIENT EST"}
                   </div>
-                )}
-                <div className="mr"><span className="mk">Blended baseline</span><span className="mv">{proj.blended} {pr.label3}</span></div>
-                {proj.gamePace && (
-                  <div className="mr">
-                    <span className="mk">RS Pace ({pt} {ptd?.rsPace} · {ot} {otd?.rsPace} → avg {proj.gamePace})</span>
-                    <span className={`mv ${proj.paceAdj > 1.005 ? "pos" : proj.paceAdj < 0.995 ? "neg" : ""}`}>×{proj.paceAdj.toFixed(3)} ({proj.paceAdj > 1.001 ? "+" : ""}{((proj.paceAdj - 1) * 100).toFixed(1)}%)</span>
+                  <div style={{ fontSize: 60, fontWeight: 800, color: "#2563eb", lineHeight: 1, marginBottom: 6, fontFamily: "'Azeret Mono',monospace" }}>
+                    {finalProj}
                   </div>
-                )}
-                {proj.defAdj !== 1.0 && <div className="mr">
-                  <span className="mk">{ot} dEFF {otd?.dEFF} vs league avg 113.5</span>
-                  <span className={`mv ${proj.defAdj > 1.005 ? "pos" : proj.defAdj < 0.995 ? "neg" : ""}`}>×{proj.defAdj.toFixed(3)} ({proj.defAdj > 1.001 ? "+" : ""}{((proj.defAdj - 1) * 100).toFixed(1)}%)</span>
-                </div>}
-                {proj.homeAdj !== 1.0 && <div className="mr">
-                  <span className="mk">Home court ({isHome ? "HOME" : "ROAD"} · {homeAwaySplits?.[pkey]?.home?.gp >= 2 && homeAwaySplits?.[pkey]?.road?.gp >= 2 ? "NBA.com PO splits · per-player" : "flat ±3% fallback"})</span>
-                  <span className={`mv ${proj.homeAdj > 1.005 ? "pos" : proj.homeAdj < 0.995 ? "neg" : ""}`}>×{proj.homeAdj.toFixed(4)} ({proj.homeAdj > 1.001 ? "+" : ""}{((proj.homeAdj - 1) * 100).toFixed(2)}%)</span>
-                </div>}
-                {proj.restAdj !== 1.0 && <div className="mr">
-                  <span className="mk">Rest days ({restDays}d rest · Sportradar schedule · NBAsuffer rest data)</span>
-                  <span className={`mv ${proj.restAdj > 1.005 ? "pos" : proj.restAdj < 0.995 ? "neg" : ""}`}>×{proj.restAdj.toFixed(4)} ({proj.restAdj > 1.001 ? "+" : ""}{((proj.restAdj - 1) * 100).toFixed(2)}%)</span>
-                </div>}
-                {proj.onOffAdj !== 1.0 && <div className="mr">
-                  <span className="mk">On/Off delta ({player.onOffDelta > 0 ? "+" : ""}{player.onOffDelta} NETRTG · NBA.com On/Off Court · Playoffs)</span>
-                  <span className={`mv ${proj.onOffAdj > 1.001 ? "pos" : proj.onOffAdj < 0.999 ? "neg" : ""}`}>×{proj.onOffAdj.toFixed(4)} ({proj.onOffAdj > 1.001 ? "+" : ""}{((proj.onOffAdj - 1) * 100).toFixed(2)}%)</span>
-                </div>}
-                {proj.tsAdj !== 1.0 && <div className="mr">
-                  <span className="mk">TS% shift (RS {player.rs.ts}% → PO {player.po.ts}% · NBA.com Players Advanced)</span>
-                  <span className={`mv ${proj.tsAdj > 1.001 ? "pos" : proj.tsAdj < 0.999 ? "neg" : ""}`}>×{proj.tsAdj.toFixed(4)} ({proj.tsAdj > 1.001 ? "+" : ""}{((proj.tsAdj - 1) * 100).toFixed(2)}%)</span>
-                </div>}
-                {proj.fg3DefAdj !== 1.0 && <div className="mr">
-                  <span className="mk">{ot} 3pt defense ({teamDefense?.[ot]?.fg3VsAvg >= 0 ? "+" : ""}{teamDefense?.[ot] ? (teamDefense[ot].fg3VsAvg * 100).toFixed(1) : "?"}% vs lg avg · NBA.com PtTeamDefend PO)</span>
-                  <span className={`mv ${proj.fg3DefAdj > 1.005 ? "pos" : proj.fg3DefAdj < 0.995 ? "neg" : ""}`}>×{proj.fg3DefAdj.toFixed(4)} ({proj.fg3DefAdj > 1.001 ? "+" : ""}{((proj.fg3DefAdj - 1) * 100).toFixed(2)}%)</span>
-                </div>}
-                {proj.injAdj > 1.001 && <div className="mr" style={{ background: "rgba(239,68,68,.05)", borderRadius: 4, padding: "4px 6px", marginBottom: 2 }}>
-                  <span className="mk" style={{ color: "#ef4444" }}>
-                    🚨 Injury usage boost — {injuryContext.outPlayers.map(p => `${dn(p.name)} OUT (${p.ppg} PPG, ${p.usg}% USG)`).join(" · ")} → +{injuryContext.boostPPG} PPG freed · {injuryContext.myShare}% of load to {dn(pkey)} (USG-based · NBA.com)
-                  </span>
-                  <span className="mv pos">×{proj.injAdj.toFixed(4)} (+{((proj.injAdj - 1) * 100).toFixed(2)}%)</span>
-                </div>}
-                {proj.clutchAdj !== 1.0 && <div className="mr">
-                  <span className="mk">Clutch performance ({clutchStats?.[pkey]?.ppg} PPG clutch vs {player.po.ppg} PO avg · {clutchStats?.[pkey]?.gp}g · NBA.com PlayerClutch PO)</span>
-                  <span className={`mv ${proj.clutchAdj > 1.001 ? "pos" : proj.clutchAdj < 0.999 ? "neg" : ""}`}>×{proj.clutchAdj.toFixed(4)} ({proj.clutchAdj > 1.001 ? "+" : ""}{((proj.clutchAdj - 1) * 100).toFixed(2)}%)</span>
-                </div>}
-                {proj.vsOppAdj !== 1.0 && <div className="mr">
-                  <span className="mk">vs {ot} historical ({vsOpponentStats?.gp}g · {vsOpponentStats?.source} · nba_api game logs)</span>
-                  <span className={`mv ${proj.vsOppAdj > 1.001 ? "pos" : proj.vsOppAdj < 0.999 ? "neg" : ""}`}>×{proj.vsOppAdj.toFixed(4)} ({proj.vsOppAdj > 1.001 ? "+" : ""}{((proj.vsOppAdj - 1) * 100).toFixed(2)}%)</span>
-                </div>}
-                {proj.matchupDeltaAdj !== 1.0 && <div className="mr">
-                  <span className="mk">
-                    Matchup Δ — {ot} L5 dEFF {matchupDelta?.[ot]?.l5_dEFF} vs season {matchupDelta?.[ot]?.season_dEFF}
-                    {" "}(Δ {matchupDelta?.[ot]?.dEFF_delta > 0 ? "+" : ""}{matchupDelta?.[ot]?.dEFF_delta} · {matchupDelta?.[ot]?.dEFF_delta > 0 ? "softened" : "tightened"} recently · NBA.com L5)
-                  </span>
-                  <span className={`mv ${proj.matchupDeltaAdj > 1.001 ? "pos" : proj.matchupDeltaAdj < 0.999 ? "neg" : ""}`}>×{proj.matchupDeltaAdj.toFixed(4)} ({proj.matchupDeltaAdj > 1.001 ? "+" : ""}{((proj.matchupDeltaAdj - 1) * 100).toFixed(2)}%)</span>
-                </div>}
-                {proj.astConvAdj !== 1.0 && <div className="mr">
-                  <span className="mk">
-                    AST conversion regression — {trackingStats?.[pkey]?.potentialAst} pot. ast/g → {trackingStats?.[pkey]?.ast} actual ({((trackingStats?.[pkey]?.astConvRate ?? 0) * 100).toFixed(0)}% conv rate vs 30% baseline · NBA.com PtStats)
-                  </span>
-                  <span className={`mv ${proj.astConvAdj > 1.001 ? "pos" : proj.astConvAdj < 0.999 ? "neg" : ""}`}>×{proj.astConvAdj.toFixed(4)} ({proj.astConvAdj > 1.001 ? "+" : ""}{((proj.astConvAdj - 1) * 100).toFixed(2)}%)</span>
-                </div>}
-                <div className="mr" style={{ borderTop: "1px solid rgba(37,99,235,.15)", marginTop: 4, paddingTop: 8 }}>
-                  <span className="mk" style={{ color: "#c8d4e8", fontWeight: 600 }}>
-                    {serverCorr ? "Client baseline result" : "Model projection"}
-                  </span>
-                  <span className="mv" style={{ color: serverCorr ? "#4a6090" : "#2563eb", fontWeight: 600 }}>{proj.adjustedProjection} {pr.label3}{serverCorr ? " (superseded by server)" : ""}</span>
+                  <div style={{ fontSize: 13, color: "#64748b" }}>{pr.label3} · {serverCorr ? "14-factor correlated output" : "awaiting server"}</div>
                 </div>
-                {!serverCorr && (
-                  <div className="mf">
-                    {proj.blended} × {proj.paceAdj.toFixed(4)} (pace){proj.defAdj !== 1.0 ? ` × ${proj.defAdj.toFixed(4)} (def)` : ""}{proj.homeAdj !== 1.0 ? ` × ${proj.homeAdj.toFixed(4)} (${isHome ? "home" : "road"})` : ""}{proj.restAdj !== 1.0 ? ` × ${proj.restAdj.toFixed(4)} (rest)` : ""}{proj.onOffAdj !== 1.0 ? ` × ${proj.onOffAdj.toFixed(4)} (on/off)` : ""}{proj.tsAdj !== 1.0 ? ` × ${proj.tsAdj.toFixed(4)} (TS%)` : ""}{proj.fg3DefAdj !== 1.0 ? ` × ${proj.fg3DefAdj.toFixed(4)} (3pt def)` : ""}{proj.injAdj > 1.001 ? ` × ${proj.injAdj.toFixed(4)} (inj boost)` : ""}{proj.clutchAdj !== 1.0 ? ` × ${proj.clutchAdj.toFixed(4)} (clutch)` : ""}{proj.vsOppAdj !== 1.0 ? ` × ${proj.vsOppAdj.toFixed(4)} (vs opp)` : ""}{proj.matchupDeltaAdj !== 1.0 ? ` × ${proj.matchupDeltaAdj.toFixed(4)} (matchup Δ)` : ""}{proj.astConvAdj !== 1.0 ? ` × ${proj.astConvAdj.toFixed(4)} (ast conv)` : ""} = {proj.adjustedProjection}
+
+                {/* VERDICT + EV% stacked */}
+                <div style={{ flex: "1 1 120px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ flex: 1, background: `${finalEc}12`, border: `1.5px solid ${finalEc}55`, borderRadius: 12, padding: "14px 12px", textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: finalEc, fontFamily: "'Azeret Mono',monospace" }}>{finalVerdict.toUpperCase()}</div>
+                    <div style={{ fontSize: 12, color: finalEc, opacity: 0.8, marginTop: 2 }}>{finalEdge > 0 ? "+" : ""}{finalEdge} {pr.label3}</div>
                   </div>
-                )}
+                  <div style={{ flex: 1, background: `${finalEvPct > 0 ? "#10b981" : "#ef4444"}10`, border: `1.5px solid ${finalEvPct > 0 ? "#10b981" : "#ef4444"}45`, borderRadius: 12, padding: "12px", textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                    <div style={{ fontSize: 9, letterSpacing: ".1em", color: "#64748b", marginBottom: 4, fontFamily: "'Azeret Mono',monospace" }}>EXPECTED VALUE</div>
+                    <div style={{ fontSize: 30, fontWeight: 800, color: finalEvPct > 0 ? "#10b981" : "#ef4444", fontFamily: "'Azeret Mono',monospace" }}>{finalEvPct > 0 ? "+" : ""}{finalEvPct}%</div>
+                  </div>
+                </div>
+
+                {/* BOOK LINE */}
+                <div style={{ flex: "1 1 100px", background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 12, padding: "20px 16px", textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                  <div style={{ fontSize: 9, letterSpacing: ".14em", color: "#3a4a62", marginBottom: 8, fontFamily: "'Azeret Mono',monospace" }}>BOOK LINE</div>
+                  <div style={{ fontSize: 42, fontWeight: 700, color: "#c8d4e8", fontFamily: "'Azeret Mono',monospace" }}>{l}</div>
+                  <div style={{ fontSize: 11, color: "#3a4a62", marginTop: 4 }}>{pr.short} O/U</div>
+                </div>
               </div>
 
-              <div className="sr">
-                <div className="sb"><div className="sbl">BOOK LINE</div><div className="sbv">{l}</div><div className="sbs">{pr.short} O/U</div></div>
-                <div className="sb" style={{ border: "1px solid rgba(37,99,235,.35)", background: "rgba(37,99,235,.07)" }}>
-                  <div className="sbl" style={{ color: "#2563eb" }}>FINAL PROJECTION {serverCorr ? "· SERVER" : "· CLIENT"}</div>
-                  <div className="sbv" style={{ fontSize: 42, color: "#2563eb" }}>{finalProj}</div>
-                  <div className="sbs">{serverCorr ? "14-factor correlated output" : "client estimate · server pending"}</div>
-                </div>
-                <div className="sb hi">
-                  <div className="sbl">EDGE vs LINE</div>
-                  <div className="sbv" style={{ color: finalEc, fontSize: 38 }}>{finalEdge > 0 ? "+" : ""}{finalEdge}</div>
-                  <div className="sbs">{finalVerdict.toUpperCase()} · {proj.blended > 0 ? (((finalProj - l) / proj.blended) * 100).toFixed(1) : 0}% vs baseline</div>
-                </div>
-              </div>
-              <div className="et"><div className="ef" style={{ width: `${finalEpct * 100}%`, background: finalEc }} /></div>
+              {/* Edge confidence bar */}
+              <div className="et" style={{ marginBottom: 14 }}><div className="ef" style={{ width: `${finalEpct * 100}%`, background: finalEc }} /></div>
 
-              {/* EV Panel — always uses finalProj (server when live, client otherwise) */}
-              <div style={{ background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 8, padding: "12px 14px", marginBottom: 14 }}>
-                <div className="mbt" style={{ marginBottom: 8 }}>EXPECTED VALUE — {serverCorr ? "SERVER PROJECTION" : "CLIENT ESTIMATE"}</div>
-                <div className="mr">
-                  <span className="mk">Final projection vs line (raw edge)</span>
-                  <span className={`mv ${finalEdge > 0 ? "pos" : finalEdge < 0 ? "neg" : ""}`}>{finalEdge > 0 ? "+" : ""}{finalEdge} {pr.label3}</span>
-                </div>
-                <div className="mr" style={{ padding: "8px 0" }}>
-                  <span className="mk">EV edge vs line</span>
-                  <span className={`mv ${finalEvPct > 0 ? "pos" : finalEvPct < 0 ? "neg" : ""}`} style={{ fontSize: 22, fontWeight: 700 }}>{finalEvPct > 0 ? "+" : ""}{finalEvPct}%</span>
-                </div>
-                <div className="mr">
-                  <span className="mk">Final projection vs RS avg ({proj.propRS})</span>
-                  <span className={`mv ${finalProj > proj.propRS ? "pos" : finalProj < proj.propRS ? "neg" : ""}`}>{proj.propRS > 0 ? (((finalProj - proj.propRS) / proj.propRS) * 100).toFixed(2) : 0}% shift</span>
-                </div>
-                <div className="mr">
-                  <span className="mk">Final projection vs PO avg ({proj.propPO})</span>
-                  <span className={`mv ${finalProj > proj.propPO ? "pos" : finalProj < proj.propPO ? "neg" : ""}`}>{proj.propPO > 0 ? (((finalProj - proj.propPO) / proj.propPO) * 100).toFixed(2) : 0}% shift</span>
-                </div>
-                <div className="mr" style={{ borderTop: "1px solid rgba(37,99,235,.1)", marginTop: 4, paddingTop: 6 }}>
-                  <span className="mk">Total lift vs blended baseline ({proj.blended})</span>
-                  <span className={`mv ${finalProj > proj.blended ? "pos" : finalProj < proj.blended ? "neg" : ""}`}>{proj.blended > 0 ? (((finalProj - proj.blended) / proj.blended) * 100).toFixed(2) : 0}% ({finalProj > proj.blended ? "+" : ""}{+(finalProj - proj.blended).toFixed(2)})</span>
-                </div>
-              </div>
-              <div className="div" />
-              <div className="cg">
-                <div className="cc"><div className="ccl">{pt} RS Pace</div><div className="ccv">{ptd?.rsPace}</div><div className="ccs">NBA.COM · 82 RS GAMES · VERIFIED APR 30 2026</div></div>
-                <div className="cc"><div className="ccl">{ot} RS Pace</div><div className="ccv">{otd?.rsPace}</div><div className="ccs">NBA.COM · 82 RS GAMES · VERIFIED APR 30 2026</div></div>
-                <div className="cc"><div className="ccl">{pt} Net Eff</div><div className="ccv" style={{ color: ptd?.eDIFF > 0 ? "#10b981" : "#ef4444" }}>{ptd?.eDIFF > 0 ? "+" : ""}{ptd?.eDIFF}</div><div className="ccs">oEFF {ptd?.oEFF} · dEFF {ptd?.dEFF}</div></div>
-                <div className="cc"><div className="ccl">{ot} Def Eff</div><div className="ccv">{otd?.dEFF}</div><div className="ccs">Lg avg 113.5 · {otd?.dEFF < 113.5 ? "stronger" : "weaker"} than avg</div></div>
-                <div className="cc"><div className="ccl">Home/Road</div><div className="ccv" style={{ color: isHome ? "#10b981" : "#f59e0b" }}>{isHome ? "🏠 HOME" : "✈ ROAD"}</div><div className="ccs">SPORTRADAR · {isHome ? "+3.16%" : "-3.06%"} scoring adj applied{["points", "pra", "pa", "pr"].includes(pr.id) ? "" : " (N/A this prop)"}</div></div>
-                <div className="cc"><div className="ccl">Rest Days</div><div className="ccv">{restDays !== null ? restDays + "d" : "—"}</div><div className="ccs">SPORTRADAR SCHEDULE · {restDays === 2 ? "+1.5% adj" : restDays >= 3 ? "+2.0% adj" : "baseline (1d = norm)"}</div></div>
-              </div>
+              {/* ── SHOW CALCULATION TOGGLE ── */}
+              <button
+                onClick={() => setShowMath(v => !v)}
+                style={{ width: "100%", padding: "11px 16px", marginBottom: showMath ? 0 : 14,
+                  background: showMath ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.03)",
+                  border: "1px solid rgba(255,255,255,.1)",
+                  borderRadius: showMath ? "8px 8px 0 0" : 8,
+                  color: showMath ? "#c8d4e8" : "#64748b",
+                  cursor: "pointer", fontFamily: "'Azeret Mono',monospace", fontSize: 10,
+                  letterSpacing: ".12em", display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                  transition: "all .15s" }}>
+                {showMath ? "▲ HIDE CALCULATION" : "▼ HOW DID WE GET HERE?"}
+              </button>
 
-              <div className="mb">
-                <div className="mbt">PLAYER PROFILE — VERIFIED DB + NBA.COM</div>
-                <div className="mr"><span className="mk">RS FG% / 3P% / FT%</span><span className="mv">{player.rs.fg}% / {player.rs.fg3}% / {player.rs.ft}%</span></div>
-                <div className="mr"><span className="mk">PO FG% / 3P% / FT%</span><span className="mv">{player.po.fg}% / {player.po.fg3}% / {player.po.ft}%</span></div>
-                {player.rs.usg && <div className="mr"><span className="mk">RS Usage% / TS%</span><span className="mv">{player.rs.usg}% / {player.rs.ts}%<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM</span></span></div>}
-                {player.po.usg && <div className="mr"><span className="mk">PO Usage% / TS%</span><span className={`mv ${player.po.ts && player.rs.ts && player.po.ts > player.rs.ts ? "pos" : player.po.ts && player.rs.ts && player.po.ts < player.rs.ts ? "neg" : ""}`}>{player.po.usg}% / {player.po.ts}%<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM</span></span></div>}
-                {player.onOffDelta !== null && player.onOffDelta !== undefined && <div className="mr"><span className="mk">On/Off NETRTG delta</span><span className={`mv ${player.onOffDelta > 0 ? "pos" : player.onOffDelta < 0 ? "neg" : ""}`}>{player.onOffDelta > 0 ? "+" : ""}{player.onOffDelta}<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM ON/OFF</span></span></div>}
-                <div className="mr"><span className="mk">PO min/game</span><span className="mv">{player.po.min} ({player.po.gp}g)</span></div>
-                {scoringBreakdown?.[pkey] && <div className="mr"><span className="mk">PO shot profile (pts from 3s / paint / FTs / midrange)</span><span className="mv">{scoringBreakdown[pkey].pctPts3pt}% / {scoringBreakdown[pkey].pctPtsPaint}% / {scoringBreakdown[pkey].pctPtsFt}% / {scoringBreakdown[pkey].pctPtsMr}%<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM SCORING</span></span></div>}
-                {clutchStats?.[pkey]?.gp >= 2 && <div className="mr"><span className="mk">PO clutch (last 5min ±5pts) — {clutchStats[pkey].gp}g</span><span className={`mv ${clutchStats[pkey].ppg > player.po.ppg ? "pos" : clutchStats[pkey].ppg < player.po.ppg ? "neg" : ""}`}>{clutchStats[pkey].ppg} PPG · {clutchStats[pkey].rpg} RPG · {clutchStats[pkey].apg} APG · {clutchStats[pkey].pm > 0 ? "+" : ""}{clutchStats[pkey].pm} PM<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM CLUTCH</span></span></div>}
-                {hustleStats?.[pkey] && (pr.id === "rebounds" || pr.id === "pra") && <div className="mr"><span className="mk">PO hustle — def box-outs / off box-outs / box-out rebs</span><span className="mv">{hustleStats[pkey].defBoxouts} / {hustleStats[pkey].offBoxouts} / {hustleStats[pkey].boxoutRebounds} per game<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM HUSTLE</span></span></div>}
-                {hustleStats?.[pkey] && (pr.id === "steals") && <div className="mr"><span className="mk">PO hustle — deflections / charges drawn / contested shots</span><span className="mv">{hustleStats[pkey].deflections} / {hustleStats[pkey].chargesDrawn} / {hustleStats[pkey].contestedShots} per game<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM HUSTLE</span></span></div>}
-                {hustleStats?.[pkey] && pr.id === "three_pointers" && <div className="mr"><span className="mk">PO contested 3pt shots player takes vs opponent contesting</span><span className="mv">{hustleStats[pkey].contested3pt} contested 3PA/g<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM HUSTLE</span></span></div>}
-                {trackingStats?.[pkey] && (pr.id === "assists" || pr.id === "pra" || pr.id === "pa") && trackingStats[pkey].gp >= 3 && <div className="mr">
-                  <span className="mk">PO passing — potential ast / actual ast / conv rate</span>
-                  <span className={`mv ${proj.astConvAdj < 0.999 ? "neg" : proj.astConvAdj > 1.001 ? "pos" : ""}`}>
-                    {trackingStats[pkey].potentialAst} pot. → {trackingStats[pkey].ast} ast ({((trackingStats[pkey].astConvRate ?? 0)*100).toFixed(0)}% conv · lg avg 30%)
-                    <span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM TRACKING</span>
-                  </span>
-                </div>}
-                {trackingStats?.[pkey] && (pr.id === "rebounds" || pr.id === "pra") && trackingStats[pkey].gp >= 3 && <div className="mr">
-                  <span className="mk">PO rebound chances — oreb chance / dreb chance / total reb chance %</span>
-                  <span className="mv">
-                    {trackingStats[pkey].orebChance} / {trackingStats[pkey].drebChance} → {trackingStats[pkey].rebChancePct}% of chances secured
-                    <span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM TRACKING</span>
-                  </span>
-                </div>}
-                {matchupDelta?.[ot] && <div className="mr">
-                  <span className="mk">{ot} last-5-game dEFF vs season dEFF</span>
-                  <span className={`mv ${matchupDelta[ot].dEFF_delta > 0.5 ? "pos" : matchupDelta[ot].dEFF_delta < -0.5 ? "neg" : ""}`}>
-                    L5: {matchupDelta[ot].l5_dEFF} vs PO season: {matchupDelta[ot].season_dEFF} (Δ {matchupDelta[ot].dEFF_delta > 0 ? "+" : ""}{matchupDelta[ot].dEFF_delta})
-                    <span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM L5</span>
-                  </span>
-                </div>}
-                {pr.id === "pra" && <div className="mr"><span className="mk">PO PRA total</span><span className="mv acc">{(player.po.ppg + player.po.rpg + player.po.apg).toFixed(1)}</span></div>}
-                {pr.id === "pa" && <div className="mr"><span className="mk">PO P+A total</span><span className="mv acc">{(player.po.ppg + player.po.apg).toFixed(1)}</span></div>}
-                {pr.id === "pr" && <div className="mr"><span className="mk">PO P+R total</span><span className="mv acc">{(player.po.ppg + player.po.rpg).toFixed(1)}</span></div>}
-              </div>
+              {/* ── COLLAPSIBLE CALCULATION PROCESS (chronological) ── */}
+              {showMath && (
+                <div style={{ border: "1px solid rgba(255,255,255,.1)", borderTop: "none", borderRadius: "0 0 8px 8px", padding: "18px 14px", marginBottom: 14, background: "rgba(0,0,0,.15)" }}>
+
+                  {/* STEP 1 — BLENDED BASELINE */}
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 9, letterSpacing: ".18em", color: "#10b981", marginBottom: 10, fontFamily: "'Azeret Mono',monospace", display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ background: "#10b98122", border: "1px solid #10b98144", borderRadius: 4, padding: "2px 8px" }}>STEP 1</span>
+                      BLENDED BASELINE
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <div style={{ background: "rgba(255,255,255,.05)", borderRadius: 6, padding: "6px 12px", fontSize: 11 }}>
+                        <span style={{ color: "#64748b" }}>RS avg </span>
+                        <span style={{ color: "#c8d4e8", fontWeight: 600 }}>{proj.propRS}</span>
+                        <span style={{ color: "#3a4a62" }}> × {proj.propRecent !== null ? "25%" : "40%"}</span>
+                      </div>
+                      <span style={{ color: "#3a4a62" }}>+</span>
+                      <div style={{ background: "rgba(255,255,255,.05)", borderRadius: 6, padding: "6px 12px", fontSize: 11 }}>
+                        <span style={{ color: "#64748b" }}>PO avg </span>
+                        <span style={{ color: "#c8d4e8", fontWeight: 600 }}>{proj.propPO}</span>
+                        <span style={{ color: "#3a4a62" }}> × {proj.propRecent !== null ? "40%" : "60%"}</span>
+                      </div>
+                      {proj.propRecent !== null && <>
+                        <span style={{ color: "#3a4a62" }}>+</span>
+                        <div style={{ background: "rgba(245,158,11,.07)", border: "1px solid rgba(245,158,11,.2)", borderRadius: 6, padding: "6px 12px", fontSize: 11 }}>
+                          <span style={{ color: "#64748b" }}>L5 avg </span>
+                          <span style={{ color: "#f59e0b", fontWeight: 600 }}>{proj.propRecent}</span>
+                          <span style={{ color: "#3a4a62" }}> × 35%</span>
+                        </div>
+                      </>}
+                      <span style={{ color: "#3a4a62" }}>=</span>
+                      <div style={{ background: "rgba(37,99,235,.1)", border: "1px solid rgba(37,99,235,.25)", borderRadius: 6, padding: "6px 14px", fontSize: 13, fontWeight: 700 }}>
+                        <span style={{ color: "#2563eb" }}>{proj.blended} {pr.label3}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* STEP 2 — CLIENT ADJUSTMENTS */}
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 9, letterSpacing: ".18em", color: "#f59e0b", marginBottom: 10, fontFamily: "'Azeret Mono',monospace", display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ background: "#f59e0b22", border: "1px solid #f59e0b44", borderRadius: 4, padding: "2px 8px" }}>STEP 2</span>
+                      CLIENT ADJUSTMENTS (multiplied sequentially)
+                    </div>
+                    <div className="mr"><span className="mk">Starting point</span><span className="mv">{proj.blended} {pr.label3}</span></div>
+                    {proj.gamePace && <div className="mr">
+                      <span className="mk">Pace ({pt} {ptd?.rsPace} · {ot} {otd?.rsPace} → avg {proj.gamePace})</span>
+                      <span className={`mv ${proj.paceAdj > 1.005 ? "pos" : proj.paceAdj < 0.995 ? "neg" : ""}`}>×{proj.paceAdj.toFixed(3)} ({proj.paceAdj > 1.001 ? "+" : ""}{((proj.paceAdj - 1) * 100).toFixed(1)}%)</span>
+                    </div>}
+                    {proj.defAdj !== 1.0 && <div className="mr">
+                      <span className="mk">{ot} dEFF {otd?.dEFF} vs league avg 113.5</span>
+                      <span className={`mv ${proj.defAdj > 1.005 ? "pos" : proj.defAdj < 0.995 ? "neg" : ""}`}>×{proj.defAdj.toFixed(3)} ({proj.defAdj > 1.001 ? "+" : ""}{((proj.defAdj - 1) * 100).toFixed(1)}%)</span>
+                    </div>}
+                    {proj.homeAdj !== 1.0 && <div className="mr">
+                      <span className="mk">Home/Road ({isHome ? "HOME" : "ROAD"} · {homeAwaySplits?.[pkey]?.home?.gp >= 2 && homeAwaySplits?.[pkey]?.road?.gp >= 2 ? "per-player PO splits" : "flat ±3% fallback"})</span>
+                      <span className={`mv ${proj.homeAdj > 1.005 ? "pos" : proj.homeAdj < 0.995 ? "neg" : ""}`}>×{proj.homeAdj.toFixed(4)} ({proj.homeAdj > 1.001 ? "+" : ""}{((proj.homeAdj - 1) * 100).toFixed(2)}%)</span>
+                    </div>}
+                    {proj.restAdj !== 1.0 && <div className="mr">
+                      <span className="mk">Rest days ({restDays}d)</span>
+                      <span className={`mv ${proj.restAdj > 1.005 ? "pos" : proj.restAdj < 0.995 ? "neg" : ""}`}>×{proj.restAdj.toFixed(4)} ({proj.restAdj > 1.001 ? "+" : ""}{((proj.restAdj - 1) * 100).toFixed(2)}%)</span>
+                    </div>}
+                    {proj.onOffAdj !== 1.0 && <div className="mr">
+                      <span className="mk">On/Off NETRTG ({player.onOffDelta > 0 ? "+" : ""}{player.onOffDelta})</span>
+                      <span className={`mv ${proj.onOffAdj > 1.001 ? "pos" : proj.onOffAdj < 0.999 ? "neg" : ""}`}>×{proj.onOffAdj.toFixed(4)} ({proj.onOffAdj > 1.001 ? "+" : ""}{((proj.onOffAdj - 1) * 100).toFixed(2)}%)</span>
+                    </div>}
+                    {proj.tsAdj !== 1.0 && <div className="mr">
+                      <span className="mk">TS% shift (RS {player.rs.ts}% → PO {player.po.ts}%)</span>
+                      <span className={`mv ${proj.tsAdj > 1.001 ? "pos" : proj.tsAdj < 0.999 ? "neg" : ""}`}>×{proj.tsAdj.toFixed(4)} ({proj.tsAdj > 1.001 ? "+" : ""}{((proj.tsAdj - 1) * 100).toFixed(2)}%)</span>
+                    </div>}
+                    {proj.fg3DefAdj !== 1.0 && <div className="mr">
+                      <span className="mk">{ot} 3pt defense ({teamDefense?.[ot]?.fg3VsAvg >= 0 ? "+" : ""}{teamDefense?.[ot] ? (teamDefense[ot].fg3VsAvg * 100).toFixed(1) : "?"}% vs lg avg)</span>
+                      <span className={`mv ${proj.fg3DefAdj > 1.005 ? "pos" : proj.fg3DefAdj < 0.995 ? "neg" : ""}`}>×{proj.fg3DefAdj.toFixed(4)} ({proj.fg3DefAdj > 1.001 ? "+" : ""}{((proj.fg3DefAdj - 1) * 100).toFixed(2)}%)</span>
+                    </div>}
+                    {proj.injAdj > 1.001 && <div className="mr" style={{ background: "rgba(239,68,68,.05)", borderRadius: 4, padding: "4px 6px" }}>
+                      <span className="mk" style={{ color: "#ef4444" }}>🚨 Injury usage boost — {injuryContext.outPlayers.map(p => `${dn(p.name)} OUT (${p.ppg} PPG)`).join(" · ")} → +{injuryContext.boostPPG} PPG freed</span>
+                      <span className="mv pos">×{proj.injAdj.toFixed(4)} (+{((proj.injAdj - 1) * 100).toFixed(2)}%)</span>
+                    </div>}
+                    {proj.clutchAdj !== 1.0 && <div className="mr">
+                      <span className="mk">Clutch ({clutchStats?.[pkey]?.ppg} PPG clutch vs {player.po.ppg} PO avg · {clutchStats?.[pkey]?.gp}g)</span>
+                      <span className={`mv ${proj.clutchAdj > 1.001 ? "pos" : proj.clutchAdj < 0.999 ? "neg" : ""}`}>×{proj.clutchAdj.toFixed(4)} ({proj.clutchAdj > 1.001 ? "+" : ""}{((proj.clutchAdj - 1) * 100).toFixed(2)}%)</span>
+                    </div>}
+                    {proj.vsOppAdj !== 1.0 && <div className="mr">
+                      <span className="mk">vs {ot} historical ({vsOpponentStats?.gp}g · {vsOpponentStats?.source})</span>
+                      <span className={`mv ${proj.vsOppAdj > 1.001 ? "pos" : proj.vsOppAdj < 0.999 ? "neg" : ""}`}>×{proj.vsOppAdj.toFixed(4)} ({proj.vsOppAdj > 1.001 ? "+" : ""}{((proj.vsOppAdj - 1) * 100).toFixed(2)}%)</span>
+                    </div>}
+                    {proj.matchupDeltaAdj !== 1.0 && <div className="mr">
+                      <span className="mk">Matchup Δ — {ot} L5 dEFF {matchupDelta?.[ot]?.l5_dEFF} vs season {matchupDelta?.[ot]?.season_dEFF} (Δ {matchupDelta?.[ot]?.dEFF_delta > 0 ? "+" : ""}{matchupDelta?.[ot]?.dEFF_delta})</span>
+                      <span className={`mv ${proj.matchupDeltaAdj > 1.001 ? "pos" : proj.matchupDeltaAdj < 0.999 ? "neg" : ""}`}>×{proj.matchupDeltaAdj.toFixed(4)} ({proj.matchupDeltaAdj > 1.001 ? "+" : ""}{((proj.matchupDeltaAdj - 1) * 100).toFixed(2)}%)</span>
+                    </div>}
+                    {proj.astConvAdj !== 1.0 && <div className="mr">
+                      <span className="mk">AST conversion ({trackingStats?.[pkey]?.potentialAst} pot. → {trackingStats?.[pkey]?.ast} actual · {((trackingStats?.[pkey]?.astConvRate ?? 0) * 100).toFixed(0)}% conv rate)</span>
+                      <span className={`mv ${proj.astConvAdj > 1.001 ? "pos" : proj.astConvAdj < 0.999 ? "neg" : ""}`}>×{proj.astConvAdj.toFixed(4)} ({proj.astConvAdj > 1.001 ? "+" : ""}{((proj.astConvAdj - 1) * 100).toFixed(2)}%)</span>
+                    </div>}
+                    <div className="mr" style={{ borderTop: "1px solid rgba(245,158,11,.2)", marginTop: 6, paddingTop: 8 }}>
+                      <span className="mk" style={{ color: "#f59e0b", fontWeight: 600 }}>Client result{serverCorr ? " — superseded by server" : ""}</span>
+                      <span className="mv" style={{ color: serverCorr ? "#4a6090" : "#2563eb", fontWeight: 700 }}>{proj.adjustedProjection} {pr.label3}</span>
+                    </div>
+                    {!serverCorr && <div className="mf">
+                      {proj.blended} × {proj.paceAdj.toFixed(4)} (pace){proj.defAdj !== 1.0 ? ` × ${proj.defAdj.toFixed(4)} (def)` : ""}{proj.homeAdj !== 1.0 ? ` × ${proj.homeAdj.toFixed(4)} (${isHome ? "home" : "road"})` : ""}{proj.restAdj !== 1.0 ? ` × ${proj.restAdj.toFixed(4)} (rest)` : ""}{proj.onOffAdj !== 1.0 ? ` × ${proj.onOffAdj.toFixed(4)} (on/off)` : ""}{proj.tsAdj !== 1.0 ? ` × ${proj.tsAdj.toFixed(4)} (TS%)` : ""}{proj.fg3DefAdj !== 1.0 ? ` × ${proj.fg3DefAdj.toFixed(4)} (3pt def)` : ""}{proj.injAdj > 1.001 ? ` × ${proj.injAdj.toFixed(4)} (inj boost)` : ""}{proj.clutchAdj !== 1.0 ? ` × ${proj.clutchAdj.toFixed(4)} (clutch)` : ""}{proj.vsOppAdj !== 1.0 ? ` × ${proj.vsOppAdj.toFixed(4)} (vs opp)` : ""}{proj.matchupDeltaAdj !== 1.0 ? ` × ${proj.matchupDeltaAdj.toFixed(4)} (matchup Δ)` : ""}{proj.astConvAdj !== 1.0 ? ` × ${proj.astConvAdj.toFixed(4)} (ast conv)` : ""} = {proj.adjustedProjection}
+                    </div>}
+                  </div>
+
+                  {/* STEP 3 — SERVER 14-FACTOR CORRELATION */}
+                  {serverCorr && (
+                    <div style={{ marginBottom: 20 }}>
+                      <div style={{ fontSize: 9, letterSpacing: ".18em", color: "#a855f7", marginBottom: 10, fontFamily: "'Azeret Mono',monospace", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ background: "#a855f722", border: "1px solid #a855f744", borderRadius: 4, padding: "2px 8px" }}>STEP 3</span>
+                        SERVER 14-FACTOR CORRELATION
+                        {serverCorr.breakdown?.residualN > 0 && <span style={{ color: "#10b981" }}>● CALIBRATED ({serverCorr.breakdown.residualN} samples)</span>}
+                      </div>
+                      {serverCorr.breakdown && (
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3px 16px", fontSize: 10, padding: "10px 12px", background: "rgba(168,85,247,.04)", border: "1px solid rgba(168,85,247,.12)", borderRadius: 8, marginBottom: 10, fontFamily: "'Azeret Mono',monospace" }}>
+                          {[
+                            ["Matchup Δ",    serverCorr.breakdown.matchupAdj,       "%"],
+                            ["Shot Profile", serverCorr.breakdown.shotProfileAdj,   "pts"],
+                            ["Pace",         serverCorr.breakdown.paceAdj,          "%"],
+                            ["Home/Road",    serverCorr.breakdown.splitsAdj,        "%"],
+                            ["Def Tier",     serverCorr.breakdown.defMatchAdj,      "%"],
+                            ["AST Conv",     serverCorr.breakdown.astConvAdj,       "pts"],
+                            ["Reb Realize",  serverCorr.breakdown.hustleAdj,        "reb"],
+                            ["Rest",         serverCorr.breakdown.restAdj,          "%"],
+                            ["Clutch",       serverCorr.breakdown.clutchAdj,        "pts"],
+                            ["Usage×TS%",    serverCorr.breakdown.usageAdj,         "%"],
+                            ["PO Form",      serverCorr.breakdown.playoffFormAdj,   "%"],
+                            ["Inj Cascade",  serverCorr.breakdown.injCascadeAdj,    "%"],
+                            ["Residual Cal", serverCorr.breakdown.residualCalibAdj, "%"],
+                          ].filter(([, val]) => val !== 0 && val !== null && val !== undefined).map(([label, val, unit]) => (
+                            <span key={label} style={{ color: val > 0 ? "#10b981" : "#ef4444" }}>
+                              {label}: {val > 0 ? "+" : ""}{typeof val === "number" ? val.toFixed(unit === "pts" || unit === "reb" ? 2 : 1) : val}{unit}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {serverCorr.drivers?.length > 0 && (
+                        <div style={{ marginBottom: 8 }}>
+                          {serverCorr.drivers.map((d, i) => (
+                            <div key={i} style={{ fontSize: 9.5, color:
+                              d.includes("COLD") || d.includes("MISMATCH") || d.includes("Uncertainty") ? "#ef4444"
+                              : d.includes("HOT") || d.includes("BOOST") || d.includes("Cascade") || d.includes("Residual") || d.includes("ABOVE") ? "#10b981"
+                              : "#64748b",
+                              marginBottom: 4, lineHeight: 1.5 }}>
+                              › {d}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="mr" style={{ borderTop: "1px solid rgba(168,85,247,.2)", marginTop: 6, paddingTop: 8 }}>
+                        <span className="mk" style={{ color: "#a855f7", fontWeight: 600 }}>Server output ← FINAL</span>
+                        <span className="mv" style={{ color: "#2563eb", fontWeight: 700 }}>{finalProj} {pr.label3}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* STEP 4 — EV ANALYSIS */}
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 9, letterSpacing: ".18em", color: "#64748b", marginBottom: 10, fontFamily: "'Azeret Mono',monospace", display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.12)", borderRadius: 4, padding: "2px 8px" }}>STEP 4</span>
+                      EXPECTED VALUE ANALYSIS
+                    </div>
+                    <div className="mr">
+                      <span className="mk">Final projection vs book line</span>
+                      <span className={`mv ${finalEdge > 0 ? "pos" : finalEdge < 0 ? "neg" : ""}`}>{finalEdge > 0 ? "+" : ""}{finalEdge} {pr.label3} ({finalVerdict.toUpperCase()})</span>
+                    </div>
+                    <div className="mr">
+                      <span className="mk" style={{ fontWeight: 600 }}>EV edge vs line</span>
+                      <span className={`mv ${finalEvPct > 0 ? "pos" : finalEvPct < 0 ? "neg" : ""}`} style={{ fontSize: 18, fontWeight: 800 }}>{finalEvPct > 0 ? "+" : ""}{finalEvPct}%</span>
+                    </div>
+                    <div className="mr">
+                      <span className="mk">Final vs RS avg ({proj.propRS})</span>
+                      <span className={`mv ${finalProj > proj.propRS ? "pos" : finalProj < proj.propRS ? "neg" : ""}`}>{proj.propRS > 0 ? (((finalProj - proj.propRS) / proj.propRS) * 100).toFixed(2) : 0}% shift</span>
+                    </div>
+                    <div className="mr">
+                      <span className="mk">Final vs PO avg ({proj.propPO})</span>
+                      <span className={`mv ${finalProj > proj.propPO ? "pos" : finalProj < proj.propPO ? "neg" : ""}`}>{proj.propPO > 0 ? (((finalProj - proj.propPO) / proj.propPO) * 100).toFixed(2) : 0}% shift</span>
+                    </div>
+                    <div className="mr" style={{ borderTop: "1px solid rgba(37,99,235,.1)", marginTop: 4, paddingTop: 6 }}>
+                      <span className="mk">Total lift vs blended baseline ({proj.blended})</span>
+                      <span className={`mv ${finalProj > proj.blended ? "pos" : finalProj < proj.blended ? "neg" : ""}`}>{proj.blended > 0 ? (((finalProj - proj.blended) / proj.blended) * 100).toFixed(2) : 0}% ({finalProj > proj.blended ? "+" : ""}{+(finalProj - proj.blended).toFixed(2)})</span>
+                    </div>
+                  </div>
+
+                  {/* Context grid */}
+                  <div className="div" />
+                  <div className="cg">
+                    <div className="cc"><div className="ccl">{pt} RS Pace</div><div className="ccv">{ptd?.rsPace}</div><div className="ccs">NBA.COM · 82 RS GAMES</div></div>
+                    <div className="cc"><div className="ccl">{ot} RS Pace</div><div className="ccv">{otd?.rsPace}</div><div className="ccs">NBA.COM · 82 RS GAMES</div></div>
+                    <div className="cc"><div className="ccl">{pt} Net Eff</div><div className="ccv" style={{ color: ptd?.eDIFF > 0 ? "#10b981" : "#ef4444" }}>{ptd?.eDIFF > 0 ? "+" : ""}{ptd?.eDIFF}</div><div className="ccs">oEFF {ptd?.oEFF} · dEFF {ptd?.dEFF}</div></div>
+                    <div className="cc"><div className="ccl">{ot} Def Eff</div><div className="ccv">{otd?.dEFF}</div><div className="ccs">Lg avg 113.5 · {otd?.dEFF < 113.5 ? "stronger" : "weaker"} than avg</div></div>
+                    <div className="cc"><div className="ccl">Home/Road</div><div className="ccv" style={{ color: isHome ? "#10b981" : "#f59e0b" }}>{isHome ? "🏠 HOME" : "✈ ROAD"}</div><div className="ccs">SPORTRADAR · {isHome ? "+3.16%" : "-3.06%"} adj{["points","pra","pa","pr"].includes(pr.id) ? "" : " (N/A)"}</div></div>
+                    <div className="cc"><div className="ccl">Rest Days</div><div className="ccv">{restDays !== null ? restDays + "d" : "—"}</div><div className="ccs">SPORTRADAR · {restDays === 2 ? "+1.5% adj" : restDays >= 3 ? "+2.0% adj" : "baseline"}</div></div>
+                  </div>
+
+                  {/* Player profile */}
+                  <div className="mb" style={{ marginTop: 10 }}>
+                    <div className="mbt">PLAYER PROFILE — VERIFIED DB + NBA.COM</div>
+                    <div className="mr"><span className="mk">RS FG% / 3P% / FT%</span><span className="mv">{player.rs.fg}% / {player.rs.fg3}% / {player.rs.ft}%</span></div>
+                    <div className="mr"><span className="mk">PO FG% / 3P% / FT%</span><span className="mv">{player.po.fg}% / {player.po.fg3}% / {player.po.ft}%</span></div>
+                    {player.rs.usg && <div className="mr"><span className="mk">RS Usage% / TS%</span><span className="mv">{player.rs.usg}% / {player.rs.ts}%<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM</span></span></div>}
+                    {player.po.usg && <div className="mr"><span className="mk">PO Usage% / TS%</span><span className={`mv ${player.po.ts && player.rs.ts && player.po.ts > player.rs.ts ? "pos" : player.po.ts && player.rs.ts && player.po.ts < player.rs.ts ? "neg" : ""}`}>{player.po.usg}% / {player.po.ts}%<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM</span></span></div>}
+                    {player.onOffDelta !== null && player.onOffDelta !== undefined && <div className="mr"><span className="mk">On/Off NETRTG delta</span><span className={`mv ${player.onOffDelta > 0 ? "pos" : player.onOffDelta < 0 ? "neg" : ""}`}>{player.onOffDelta > 0 ? "+" : ""}{player.onOffDelta}<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM ON/OFF</span></span></div>}
+                    <div className="mr"><span className="mk">PO min/game</span><span className="mv">{player.po.min} ({player.po.gp}g)</span></div>
+                    {scoringBreakdown?.[pkey] && <div className="mr"><span className="mk">PO shot profile (3s / paint / FTs / midrange)</span><span className="mv">{scoringBreakdown[pkey].pctPts3pt}% / {scoringBreakdown[pkey].pctPtsPaint}% / {scoringBreakdown[pkey].pctPtsFt}% / {scoringBreakdown[pkey].pctPtsMr}%<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM SCORING</span></span></div>}
+                    {clutchStats?.[pkey]?.gp >= 2 && <div className="mr"><span className="mk">PO clutch (last 5min ±5pts) — {clutchStats[pkey].gp}g</span><span className={`mv ${clutchStats[pkey].ppg > player.po.ppg ? "pos" : clutchStats[pkey].ppg < player.po.ppg ? "neg" : ""}`}>{clutchStats[pkey].ppg} PPG · {clutchStats[pkey].rpg} RPG · {clutchStats[pkey].apg} APG · {clutchStats[pkey].pm > 0 ? "+" : ""}{clutchStats[pkey].pm} PM<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM CLUTCH</span></span></div>}
+                    {hustleStats?.[pkey] && (pr.id === "rebounds" || pr.id === "pra") && <div className="mr"><span className="mk">PO hustle — def box-outs / off box-outs / box-out rebs</span><span className="mv">{hustleStats[pkey].defBoxouts} / {hustleStats[pkey].offBoxouts} / {hustleStats[pkey].boxoutRebounds} per game<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM HUSTLE</span></span></div>}
+                    {hustleStats?.[pkey] && (pr.id === "steals") && <div className="mr"><span className="mk">PO hustle — deflections / charges drawn / contested shots</span><span className="mv">{hustleStats[pkey].deflections} / {hustleStats[pkey].chargesDrawn} / {hustleStats[pkey].contestedShots} per game<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM HUSTLE</span></span></div>}
+                    {hustleStats?.[pkey] && pr.id === "three_pointers" && <div className="mr"><span className="mk">PO contested 3pt shots</span><span className="mv">{hustleStats[pkey].contested3pt} contested 3PA/g<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM HUSTLE</span></span></div>}
+                    {trackingStats?.[pkey] && (pr.id === "assists" || pr.id === "pra" || pr.id === "pa") && trackingStats[pkey].gp >= 3 && <div className="mr">
+                      <span className="mk">PO passing — potential ast / actual ast / conv rate</span>
+                      <span className={`mv ${proj.astConvAdj < 0.999 ? "neg" : proj.astConvAdj > 1.001 ? "pos" : ""}`}>
+                        {trackingStats[pkey].potentialAst} pot. → {trackingStats[pkey].ast} ast ({((trackingStats[pkey].astConvRate ?? 0)*100).toFixed(0)}% conv · lg avg 30%)
+                        <span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM TRACKING</span>
+                      </span>
+                    </div>}
+                    {trackingStats?.[pkey] && (pr.id === "rebounds" || pr.id === "pra") && trackingStats[pkey].gp >= 3 && <div className="mr">
+                      <span className="mk">PO rebound chances — oreb / dreb / secured %</span>
+                      <span className="mv">
+                        {trackingStats[pkey].orebChance} / {trackingStats[pkey].drebChance} → {trackingStats[pkey].rebChancePct}% of chances secured
+                        <span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM TRACKING</span>
+                      </span>
+                    </div>}
+                    {matchupDelta?.[ot] && <div className="mr">
+                      <span className="mk">{ot} L5 dEFF vs season dEFF</span>
+                      <span className={`mv ${matchupDelta[ot].dEFF_delta > 0.5 ? "pos" : matchupDelta[ot].dEFF_delta < -0.5 ? "neg" : ""}`}>
+                        L5: {matchupDelta[ot].l5_dEFF} vs season: {matchupDelta[ot].season_dEFF} (Δ {matchupDelta[ot].dEFF_delta > 0 ? "+" : ""}{matchupDelta[ot].dEFF_delta})
+                        <span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM L5</span>
+                      </span>
+                    </div>}
+                    {pr.id === "pra" && <div className="mr"><span className="mk">PO PRA total</span><span className="mv acc">{(player.po.ppg + player.po.rpg + player.po.apg).toFixed(1)}</span></div>}
+                    {pr.id === "pa" && <div className="mr"><span className="mk">PO P+A total</span><span className="mv acc">{(player.po.ppg + player.po.apg).toFixed(1)}</span></div>}
+                    {pr.id === "pr" && <div className="mr"><span className="mk">PO P+R total</span><span className="mv acc">{(player.po.ppg + player.po.rpg).toFixed(1)}</span></div>}
+                  </div>
+
+                </div>
+              )}
 
               <div className="dn">
                 ALL STATS LIVE FROM NBA.COM VIA NBA_API ·
