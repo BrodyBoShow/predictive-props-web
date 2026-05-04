@@ -184,8 +184,9 @@ const INJURIES = {
   // ── Confirmed OUT ─────────────────────────────────────────────────────────
   "kevin durant": { status: "OUT", detail: "Left ankle bone bruise — out Game 6, 2-week min (NBA official report)" },
   "fred vanvleet": { status: "OUT", detail: "Right knee ACL repair — out for season (NBA official report)" },
-  "anthony edwards": { status: "OUT", detail: "Left knee hyperextension + bone bruise — out (DK Network Apr 30 report)" },
+  // anthony edwards: ACTIVE — returned from knee injury, removed May 4 2026
   "donte divincenzo": { status: "OUT", detail: "Right Achilles tendon repair — out for season (NBA official report)" },
+  "ayo dosunmu": { status: "OUT", detail: "Injury — confirmed OUT (May 2026)" },
   "luka doncic": { status: "OUT", detail: "Left hamstring strain — no timetable, not expected R1 (ESPN Shams)" },
   "steven adams": { status: "OUT", detail: "Left ankle surgery — out for season (NBA official report Apr 26)" },
   // ── GTD / Questionable ────────────────────────────────────────────────────
@@ -236,7 +237,8 @@ const GAME_ROSTERS = {
     home: "MIN", away: "DEN", homeTeam: "Minnesota Timberwolves", awayTeam: "Denver Nuggets",
     time: "9:30 PM ET", title: "Game 6", series: "MIN leads 3-2",
     restDays: { MIN: 2, DEN: 2 },
-    MIN: ["ayo dosunmu", "julius randle", "rudy gobert", "jaden mcdaniels", "naz reid", "mike conley", "terrence shannon jr", "bones hyland", "kyle anderson", "anthony edwards"],
+    MIN: ["anthony edwards", "julius randle", "rudy gobert", "jaden mcdaniels", "naz reid", "mike conley", "terrence shannon jr", "bones hyland", "kyle anderson"],
+    // ayo dosunmu: OUT (injury May 2026) — removed from active roster
     DEN: ["nikola jokic", "jamal murray", "cameron johnson", "aaron gordon", "christian braun", "bruce brown", "peyton watson"]
   },
 
