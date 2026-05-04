@@ -175,28 +175,20 @@ const PLAYER_DB = {
   "russell westbrook": E("DEN", 201566, "G", P(9.4, 4.8, 5.8, 1.0, 0.2, 2.4, 44.8, 28.4, 74.4, 20.4, 56), P(8.0, 5.0, 5.5, 0.8, 0.2, 2.0, 42.0, 26.0, 72.0, 20.0, 5)),
 };
 
-// ── INJURY FLAGS ─────────────────────────────────────────────────────────────
-// Source: DraftKings Network NBA Injury Report Thu Apr 30 2026 (live fetch)
-//         Official NBA PDF injury report + Shams Charania/ESPN confirmed reports
-// Updated: Apr 30 2026 — fetched this session
-// Statuses: OUT = confirmed will not play | GTD = game-time decision | PROB = probable
+// ── INJURY FLAGS — OFFLINE FALLBACK ONLY ─────────────────────────────────────
+// This dict is ONLY used when /api/injuries is completely unreachable.
+// In normal operation the live ESPN feed from /api/injuries takes full priority.
+// Keep only confirmed season-ending / long-term OUT injuries here.
+// DO NOT add day-to-day or returning players — live API handles those.
+// Updated: May 4 2026
 const INJURIES = {
-  // ── Confirmed OUT ─────────────────────────────────────────────────────────
-  "kevin durant": { status: "OUT", detail: "Left ankle bone bruise — out Game 6, 2-week min (NBA official report)" },
-  "fred vanvleet": { status: "OUT", detail: "Right knee ACL repair — out for season (NBA official report)" },
-  // anthony edwards: ACTIVE — returned from knee injury, removed May 4 2026
-  "donte divincenzo": { status: "OUT", detail: "Right Achilles tendon repair — out for season (NBA official report)" },
-  "ayo dosunmu": { status: "OUT", detail: "Injury — confirmed OUT (May 2026)" },
-  "luka doncic": { status: "OUT", detail: "Left hamstring strain — no timetable, not expected R1 (ESPN Shams)" },
-  "steven adams": { status: "OUT", detail: "Left ankle surgery — out for season (NBA official report Apr 26)" },
-  // ── GTD / Questionable ────────────────────────────────────────────────────
-  "josh hart": { status: "GTD", detail: "Back — questionable for Game 6 (DK Network Apr 30 report)" },
-  "aaron gordon": { status: "GTD", detail: "Calf — questionable for Game 6 (DK Network Apr 30 report)" },
-  "bones hyland": { status: "GTD", detail: "Knee — questionable for Game 6 (DK Network Apr 30 report)" },
-  "austin reaves": { status: "GTD", detail: "Left oblique muscle strain — day-to-day (ESPN Shams)" },
-  "franz wagner": { status: "OUT", detail: "Calf strain — confirmed OUT (ESPN May 3 2026)" },
-  // ── Probable ──────────────────────────────────────────────────────────────
-  "joel embiid": { status: "PROB", detail: "Appendectomy recovery — probable Game 6 (DK Network Apr 30 report)" },
+  "fred vanvleet":    { status: "OUT", detail: "Right knee ACL repair — out for season" },
+  "donte divincenzo": { status: "OUT", detail: "Right Achilles repair — out for season" },
+  "steven adams":     { status: "OUT", detail: "Left ankle surgery — out for season" },
+  "luka doncic":      { status: "OUT", detail: "Left hamstring strain — no timetable" },
+  "franz wagner":     { status: "OUT", detail: "Calf strain — confirmed OUT (ESPN May 3 2026)" },
+  "ayo dosunmu":      { status: "OUT", detail: "Injury — confirmed OUT (May 2026)" },
+  // All other statuses (GTD, PROB, returning players) come from live ESPN feed
 };
 
 // ── LIVE SCHEDULE — built from Sportradar API Apr 30 2026 ─────────────────────
