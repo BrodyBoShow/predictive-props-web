@@ -1283,9 +1283,18 @@ export default function NBAPropsModel() {
 
         {result && (() => {
           const { player, prop: pr, game: g, pt, ot, l, proj, verdict, edge, evPct, confGrade, impactList, conf, ptd, otd, isHome, restDays, serverCorr } = result;
+          // ── SINGLE SOURCE OF TRUTH: server projection wins when available ──
+          // Server applies 14 correlation factors. Client is the instant estimate only.
+          // ALL final-answer displays (projection card, edge, EV) use finalProj.
+          const finalProj = serverCorr?.projection ?? proj.adjustedProjection;
+          const finalEdge = +(finalProj - l).toFixed(2);
+          const finalVerdict = Math.abs(finalEdge) < 0.3 ? "push" : finalEdge > 0 ? "over" : "under";
+          const finalEvPct = l > 0 ? +((finalProj - l) / l * 100).toFixed(2) : 0;
+          const finalEc = finalVerdict === "over" ? "#10b981" : finalVerdict === "under" ? "#ef4444" : "#f59e0b";
+          const finalEpct = Math.min(Math.abs(finalEdge) / 5, 1);
           const inj = getInjury(player.key);
           const dname = dn(player.key);
-          const ec = verdict === "over" ? "#10b981" : verdict === "under" ? "#ef4444" : "#f59e0b";
+          const ec = finalEc;
           const epct = Math.min(Math.abs(edge) / 5, 1);
           const confGradeColor = confGrade === "S-TIER" ? "#a855f7" : confGrade === "A-TIER" ? "#10b981" : confGrade === "B-TIER" ? "#2563eb" : "#64748b";
           return (
@@ -1315,17 +1324,17 @@ export default function NBAPropsModel() {
                 <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "4px 0", fontSize: 11, lineHeight: 1.85 }}>
                   <span style={{ color: "#2a3550" }}>PLAYER  │</span>
                   <span style={{ color: "#e8f0ff" }}>{dname} <span style={{ color: "#2a3550" }}>│</span> {pt} vs {ot} <span style={{ color: "#2a3550" }}>│</span> {pr.label.toUpperCase()}</span>
-                  <span style={{ color: "#2a3550" }}>PROJ    │</span>
+                  <span style={{ color: "#2a3550" }}>FINAL   │</span>
                   <span>
-                    <span style={{ color: "#2563eb", fontWeight: 700, fontSize: 13 }}>{serverCorr ? serverCorr.projection : proj.adjustedProjection} {pr.label3}</span>
-                    {serverCorr && (
-                      <span style={{ color: "#2a3550", fontSize: 9, marginLeft: 10 }}>baseline: {serverCorr.base} (PO×0.4 + RS×0.25 + L5×0.35)</span>
-                    )}
+                    <span style={{ color: "#2563eb", fontWeight: 700, fontSize: 16 }}>{finalProj} {pr.label3}</span>
+                    <span style={{ color: "#2a3550", fontSize: 9, marginLeft: 10 }}>
+                      {serverCorr ? `14-factor server output · baseline ${serverCorr.base}` : `client estimate · awaiting server`}
+                    </span>
                   </span>
                   <span style={{ color: "#2a3550" }}>BOOK    │</span>
-                  <span style={{ color: "#c8d4e8" }}>{l} O/U  <span style={{ color: edge > 0 ? "#10b981" : "#ef4444", marginLeft: 8 }}>{edge > 0 ? "▲" : "▼"} {Math.abs(edge)} {pr.label3} {verdict.toUpperCase()}</span></span>
+                  <span style={{ color: "#c8d4e8" }}>{l} O/U  <span style={{ color: finalEdge > 0 ? "#10b981" : "#ef4444", marginLeft: 8 }}>{finalEdge > 0 ? "▲" : "▼"} {Math.abs(finalEdge)} {pr.label3} {finalVerdict.toUpperCase()}</span></span>
                   <span style={{ color: "#2a3550" }}>EV EDGE │</span>
-                  <span style={{ color: evPct > 0 ? "#10b981" : "#ef4444", fontWeight: 700 }}>{evPct > 0 ? "+" : ""}{evPct}%</span>
+                  <span style={{ color: finalEvPct > 0 ? "#10b981" : "#ef4444", fontWeight: 700 }}>{finalEvPct > 0 ? "+" : ""}{finalEvPct}%</span>
                   <span style={{ color: "#2a3550" }}>GRADE   │</span>
                   <span>
                     <span style={{ background: confGradeColor, color: "#fff", padding: "2px 10px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: ".12em" }}>{confGrade}</span>
@@ -1466,7 +1475,15 @@ export default function NBAPropsModel() {
               </div>
 
               <div className="mb">
-                <div className="mbt">PROJECTION MATH — ALL VERIFIED DATA</div>
+                <div className="mbt">{serverCorr ? "BASELINE ESTIMATE (client-side)" : "PROJECTION MATH — ALL VERIFIED DATA"}</div>
+                {serverCorr && (
+                  <div style={{ background: "rgba(37,99,235,.06)", border: "1px solid rgba(37,99,235,.2)", borderRadius: 6, padding: "8px 12px", marginBottom: 10, fontFamily: "'Azeret Mono',monospace", fontSize: 10 }}>
+                    <span style={{ color: "#2a3550" }}>CLIENT BASELINE: </span>
+                    <span style={{ color: "#c8d4e8" }}>{proj.blended} → {proj.adjustedProjection} {pr.label3}</span>
+                    <span style={{ color: "#2a3550", marginLeft: 10 }}>→ SERVER 14-FACTOR OUTPUT: </span>
+                    <span style={{ color: "#2563eb", fontWeight: 700, fontSize: 13 }}>{finalProj} {pr.label3} ← FINAL</span>
+                  </div>
+                )}
                 <div className="mr"><span className="mk">Blended baseline</span><span className="mv">{proj.blended} {pr.label3}</span></div>
                 {proj.gamePace && (
                   <div className="mr">
@@ -1526,47 +1543,55 @@ export default function NBAPropsModel() {
                   <span className={`mv ${proj.astConvAdj > 1.001 ? "pos" : proj.astConvAdj < 0.999 ? "neg" : ""}`}>×{proj.astConvAdj.toFixed(4)} ({proj.astConvAdj > 1.001 ? "+" : ""}{((proj.astConvAdj - 1) * 100).toFixed(2)}%)</span>
                 </div>}
                 <div className="mr" style={{ borderTop: "1px solid rgba(37,99,235,.15)", marginTop: 4, paddingTop: 8 }}>
-                  <span className="mk" style={{ color: "#c8d4e8", fontWeight: 600 }}>Model projection</span>
-                  <span className="mv acc">{proj.adjustedProjection} {pr.label3}</span>
+                  <span className="mk" style={{ color: "#c8d4e8", fontWeight: 600 }}>
+                    {serverCorr ? "Client baseline result" : "Model projection"}
+                  </span>
+                  <span className="mv" style={{ color: serverCorr ? "#4a6090" : "#2563eb", fontWeight: 600 }}>{proj.adjustedProjection} {pr.label3}{serverCorr ? " (superseded by server)" : ""}</span>
                 </div>
-                <div className="mf">
-                  {proj.blended} × {proj.paceAdj.toFixed(4)} (pace){proj.defAdj !== 1.0 ? ` × ${proj.defAdj.toFixed(4)} (def)` : ""}{proj.homeAdj !== 1.0 ? ` × ${proj.homeAdj.toFixed(4)} (${isHome ? "home" : "road"})` : ""}{proj.restAdj !== 1.0 ? ` × ${proj.restAdj.toFixed(4)} (rest)` : ""}{proj.onOffAdj !== 1.0 ? ` × ${proj.onOffAdj.toFixed(4)} (on/off)` : ""}{proj.tsAdj !== 1.0 ? ` × ${proj.tsAdj.toFixed(4)} (TS%)` : ""}{proj.fg3DefAdj !== 1.0 ? ` × ${proj.fg3DefAdj.toFixed(4)} (3pt def)` : ""}{proj.injAdj > 1.001 ? ` × ${proj.injAdj.toFixed(4)} (inj boost)` : ""}{proj.clutchAdj !== 1.0 ? ` × ${proj.clutchAdj.toFixed(4)} (clutch)` : ""}{proj.vsOppAdj !== 1.0 ? ` × ${proj.vsOppAdj.toFixed(4)} (vs opp)` : ""}{proj.matchupDeltaAdj !== 1.0 ? ` × ${proj.matchupDeltaAdj.toFixed(4)} (matchup Δ)` : ""}{proj.astConvAdj !== 1.0 ? ` × ${proj.astConvAdj.toFixed(4)} (ast conv)` : ""} = {proj.adjustedProjection}
-                </div>
+                {!serverCorr && (
+                  <div className="mf">
+                    {proj.blended} × {proj.paceAdj.toFixed(4)} (pace){proj.defAdj !== 1.0 ? ` × ${proj.defAdj.toFixed(4)} (def)` : ""}{proj.homeAdj !== 1.0 ? ` × ${proj.homeAdj.toFixed(4)} (${isHome ? "home" : "road"})` : ""}{proj.restAdj !== 1.0 ? ` × ${proj.restAdj.toFixed(4)} (rest)` : ""}{proj.onOffAdj !== 1.0 ? ` × ${proj.onOffAdj.toFixed(4)} (on/off)` : ""}{proj.tsAdj !== 1.0 ? ` × ${proj.tsAdj.toFixed(4)} (TS%)` : ""}{proj.fg3DefAdj !== 1.0 ? ` × ${proj.fg3DefAdj.toFixed(4)} (3pt def)` : ""}{proj.injAdj > 1.001 ? ` × ${proj.injAdj.toFixed(4)} (inj boost)` : ""}{proj.clutchAdj !== 1.0 ? ` × ${proj.clutchAdj.toFixed(4)} (clutch)` : ""}{proj.vsOppAdj !== 1.0 ? ` × ${proj.vsOppAdj.toFixed(4)} (vs opp)` : ""}{proj.matchupDeltaAdj !== 1.0 ? ` × ${proj.matchupDeltaAdj.toFixed(4)} (matchup Δ)` : ""}{proj.astConvAdj !== 1.0 ? ` × ${proj.astConvAdj.toFixed(4)} (ast conv)` : ""} = {proj.adjustedProjection}
+                  </div>
+                )}
               </div>
 
               <div className="sr">
                 <div className="sb"><div className="sbl">BOOK LINE</div><div className="sbv">{l}</div><div className="sbs">{pr.short} O/U</div></div>
-                <div className="sb"><div className="sbl">PROJECTION</div><div className="sbv" style={{ fontSize: 42, color: "#2563eb" }}>{proj.adjustedProjection}</div><div className="sbs">Model output</div></div>
+                <div className="sb" style={{ border: "1px solid rgba(37,99,235,.35)", background: "rgba(37,99,235,.07)" }}>
+                  <div className="sbl" style={{ color: "#2563eb" }}>FINAL PROJECTION {serverCorr ? "· SERVER" : "· CLIENT"}</div>
+                  <div className="sbv" style={{ fontSize: 42, color: "#2563eb" }}>{finalProj}</div>
+                  <div className="sbs">{serverCorr ? "14-factor correlated output" : "client estimate · server pending"}</div>
+                </div>
                 <div className="sb hi">
                   <div className="sbl">EDGE vs LINE</div>
-                  <div className="sbv" style={{ color: ec, fontSize: 38 }}>{edge > 0 ? "+" : ""}{edge}</div>
-                  <div className="sbs">{verdict.toUpperCase()} · {proj.blended > 0 ? (((proj.adjustedProjection - l) / proj.blended) * 100).toFixed(1) : 0}% vs baseline</div>
+                  <div className="sbv" style={{ color: finalEc, fontSize: 38 }}>{finalEdge > 0 ? "+" : ""}{finalEdge}</div>
+                  <div className="sbs">{finalVerdict.toUpperCase()} · {proj.blended > 0 ? (((finalProj - l) / proj.blended) * 100).toFixed(1) : 0}% vs baseline</div>
                 </div>
               </div>
-              <div className="et"><div className="ef" style={{ width: `${epct * 100}%`, background: ec }} /></div>
+              <div className="et"><div className="ef" style={{ width: `${finalEpct * 100}%`, background: finalEc }} /></div>
 
-              {/* EV Panel */}
+              {/* EV Panel — always uses finalProj (server when live, client otherwise) */}
               <div style={{ background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 8, padding: "12px 14px", marginBottom: 14 }}>
-                <div className="mbt" style={{ marginBottom: 8 }}>EXPECTED VALUE BREAKDOWN</div>
+                <div className="mbt" style={{ marginBottom: 8 }}>EXPECTED VALUE — {serverCorr ? "SERVER PROJECTION" : "CLIENT ESTIMATE"}</div>
                 <div className="mr">
-                  <span className="mk">Projection vs line (raw edge)</span>
-                  <span className={`mv ${edge > 0 ? "pos" : edge < 0 ? "neg" : ""}`}>{edge > 0 ? "+" : ""}{edge} {pr.label3}</span>
+                  <span className="mk">Final projection vs line (raw edge)</span>
+                  <span className={`mv ${finalEdge > 0 ? "pos" : finalEdge < 0 ? "neg" : ""}`}>{finalEdge > 0 ? "+" : ""}{finalEdge} {pr.label3}</span>
                 </div>
                 <div className="mr" style={{ padding: "8px 0" }}>
-                  <span className="mk">Edge as % of blended baseline ({proj.blended})</span>
-                  <span className={`mv ${edge > 0 ? "pos" : edge < 0 ? "neg" : ""}`} style={{ fontSize: 22, fontWeight: 700 }}>{proj.blended > 0 ? (((proj.adjustedProjection - l) / proj.blended) * 100).toFixed(2) : 0}%</span>
+                  <span className="mk">EV edge vs line</span>
+                  <span className={`mv ${finalEvPct > 0 ? "pos" : finalEvPct < 0 ? "neg" : ""}`} style={{ fontSize: 22, fontWeight: 700 }}>{finalEvPct > 0 ? "+" : ""}{finalEvPct}%</span>
                 </div>
                 <div className="mr">
-                  <span className="mk">Projection vs RS avg ({proj.propRS})</span>
-                  <span className={`mv ${proj.adjustedProjection > proj.propRS ? "pos" : proj.adjustedProjection < proj.propRS ? "neg" : ""}`}>{proj.propRS > 0 ? (((proj.adjustedProjection - proj.propRS) / proj.propRS) * 100).toFixed(2) : 0}% shift</span>
+                  <span className="mk">Final projection vs RS avg ({proj.propRS})</span>
+                  <span className={`mv ${finalProj > proj.propRS ? "pos" : finalProj < proj.propRS ? "neg" : ""}`}>{proj.propRS > 0 ? (((finalProj - proj.propRS) / proj.propRS) * 100).toFixed(2) : 0}% shift</span>
                 </div>
                 <div className="mr">
-                  <span className="mk">Projection vs PO avg ({proj.propPO})</span>
-                  <span className={`mv ${proj.adjustedProjection > proj.propPO ? "pos" : proj.adjustedProjection < proj.propPO ? "neg" : ""}`}>{proj.propPO > 0 ? (((proj.adjustedProjection - proj.propPO) / proj.propPO) * 100).toFixed(2) : 0}% shift</span>
+                  <span className="mk">Final projection vs PO avg ({proj.propPO})</span>
+                  <span className={`mv ${finalProj > proj.propPO ? "pos" : finalProj < proj.propPO ? "neg" : ""}`}>{proj.propPO > 0 ? (((finalProj - proj.propPO) / proj.propPO) * 100).toFixed(2) : 0}% shift</span>
                 </div>
                 <div className="mr" style={{ borderTop: "1px solid rgba(37,99,235,.1)", marginTop: 4, paddingTop: 6 }}>
-                  <span className="mk">Total adjustment from adjustments only</span>
-                  <span className={`mv ${proj.adjustedProjection > proj.blended ? "pos" : proj.adjustedProjection < proj.blended ? "neg" : ""}`}>{proj.blended > 0 ? (((proj.adjustedProjection - proj.blended) / proj.blended) * 100).toFixed(2) : 0}% ({proj.adjustedProjection > proj.blended ? "+" : ""}{+(proj.adjustedProjection - proj.blended).toFixed(2)})</span>
+                  <span className="mk">Total lift vs blended baseline ({proj.blended})</span>
+                  <span className={`mv ${finalProj > proj.blended ? "pos" : finalProj < proj.blended ? "neg" : ""}`}>{proj.blended > 0 ? (((finalProj - proj.blended) / proj.blended) * 100).toFixed(2) : 0}% ({finalProj > proj.blended ? "+" : ""}{+(finalProj - proj.blended).toFixed(2)})</span>
                 </div>
               </div>
               <div className="div" />
