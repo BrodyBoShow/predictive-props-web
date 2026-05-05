@@ -952,18 +952,23 @@ export default function NBAPropsModel() {
         };
       }
     });
-    // Auto-fill empty rosters from PLAYER_DB (client-side, always available)
+    // Build a combined player-by-team lookup: live API first, static PLAYER_DB as fallback
+    // livePlayerDB has every active NBA player; PLAYER_DB covers historical/inactive ones
+    const allPlayers = livePlayerDB
+      ? { ...PLAYER_DB, ...livePlayerDB }  // live wins on overlap
+      : PLAYER_DB;
+    // Auto-fill any empty roster slots from the combined lookup
     for (const gid of Object.keys(base)) {
       const g = base[gid];
       for (const abbr of [g.home, g.away]) {
         if (!abbr) continue;
         if (!g[abbr] || g[abbr].length === 0) {
-          g[abbr] = Object.keys(PLAYER_DB).filter(k => PLAYER_DB[k]?.team === abbr);
+          g[abbr] = Object.keys(allPlayers).filter(k => allPlayers[k]?.team === abbr);
         }
       }
     }
     return base;
-  }, [liveSched]);
+  }, [liveSched, livePlayerDB]);
 
   // Dynamic game ID lists — driven by live schedule when available, static fallback otherwise
   const activeTodayIds    = useMemo(() =>
