@@ -705,28 +705,87 @@ export default function NBAPropsModel() {
     } catch {}
   }, []);
 
-  // ── Fetch live schedule from our /api/schedule endpoint ────────────────────
-  // Backend pulls from ESPN's public scoreboard (with NBA stats fallback) so we
-  // get today's live scores + tomorrow's scheduled games (including conditional
-  // Game 7s). Replaces previous Anthropic-API-based approach which required
-  // browser-side API keys and frequently failed.
+  // ── Fetch live schedule directly from ESPN (CORS-enabled, no server needed) ──
+  // ESPN's public scoreboard API is CORS-open so we hit it from the browser.
+  // This eliminates Render cold-start failures and server-side date bugs entirely.
+  // Game-night convention: before 6 AM ET we're still "last night", so roll back one day.
   useEffect(() => {
-    const fetchSchedule = async () => {
+    const ESPN_ABBR = { SA:"SAS", GS:"GSW", NY:"NYK", NO:"NOP", UTAH:"UTA" };
+    const normAbbr = a => ESPN_ABBR[(a||"").toUpperCase()] || (a||"").toUpperCase();
+
+    const toIso = d =>
+      `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+
+    const parseEspn = async (iso) => {
       try {
-        const resp = await fetch(`${API_BASE}/schedule`, { cache: "no-store" });
-        if (!resp.ok) return setLiveSched(false);
-        const data = await resp.json();
-        if (!data?.success) return setLiveSched(false);
-        setLiveSched({
-          today:          data.today,
-          todayGames:     data.todayGames || [],
-          upcomingGames:  data.upcomingGames || [],
-          upcomingLabel:  data.upcomingLabel,
+        const r = await fetch(
+          `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${iso}`,
+          { cache: "no-store" }
+        );
+        if (!r.ok) return [];
+        const d = await r.json();
+        return (d.events || []).map(ev => {
+          const comps = ev.competitions?.[0] || {};
+          const home = comps.competitors?.find(c => c.homeAway === "home");
+          const away = comps.competitors?.find(c => c.homeAway === "away");
+          const homeAbbr = normAbbr(home?.team?.abbreviation || "");
+          const awayAbbr = normAbbr(away?.team?.abbreviation || "");
+          const status   = comps.status?.type?.name || "";
+          const statusTxt = status === "STATUS_FINAL" ? "Final"
+                          : status === "STATUS_IN_PROGRESS" ? "Live"
+                          : "Scheduled";
+          const note  = comps.notes?.find(n => n.type === "event")?.headline || "";
+          const series = comps.series?.summary || note || "";
+          const rawTime = ev.date ? new Date(ev.date).toLocaleTimeString("en-US",
+            { timeZone:"America/New_York", hour:"numeric", minute:"2-digit" }) : "TBD";
+          const time = statusTxt === "Final" ? "Final"
+                     : statusTxt === "Live"  ? "Live"
+                     : rawTime;
+          return {
+            id:        ev.id,
+            home:      homeAbbr,
+            away:      awayAbbr,
+            homeTeam:  home?.team?.shortDisplayName || homeAbbr,
+            awayTeam:  away?.team?.shortDisplayName || awayAbbr,
+            time,
+            title:     ev.name || `${awayAbbr} @ ${homeAbbr}`,
+            series,
+            restDays:  {},
+            [homeAbbr]: [],
+            [awayAbbr]: [],
+          };
         });
-      } catch (e) { setLiveSched(false); }
+      } catch { return []; }
     };
+
+    const fetchSchedule = async () => {
+      // Game-night date rollback: before 6 AM ET we're still on "last night"
+      const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const displayDate = nowET.getHours() < 6
+        ? new Date(nowET.getFullYear(), nowET.getMonth(), nowET.getDate() - 1)
+        : new Date(nowET.getFullYear(), nowET.getMonth(), nowET.getDate());
+
+      const todayIso   = toIso(displayDate);
+      const todayLabel = displayDate.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" });
+      const todayGames = await parseEspn(todayIso);
+
+      // Scan forward for the next day that has scheduled games
+      let upcomingGames = [];
+      let upcomingLabel = "";
+      for (let offset = 1; offset <= 6; offset++) {
+        const d = new Date(displayDate.getFullYear(), displayDate.getMonth(), displayDate.getDate() + offset);
+        const games = await parseEspn(toIso(d));
+        if (games.length > 0) {
+          upcomingGames = games;
+          upcomingLabel = d.toLocaleDateString("en-US", { month:"short", day:"numeric" });
+          break;
+        }
+      }
+
+      setLiveSched({ today: todayLabel, todayGames, upcomingGames, upcomingLabel });
+    };
+
     fetchSchedule();
-    // Refresh schedule every 5 minutes so live scores + new games update without page reload
     const interval = setInterval(fetchSchedule, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
@@ -893,6 +952,16 @@ export default function NBAPropsModel() {
         };
       }
     });
+    // Auto-fill empty rosters from PLAYER_DB (client-side, always available)
+    for (const gid of Object.keys(base)) {
+      const g = base[gid];
+      for (const abbr of [g.home, g.away]) {
+        if (!abbr) continue;
+        if (!g[abbr] || g[abbr].length === 0) {
+          g[abbr] = Object.keys(PLAYER_DB).filter(k => PLAYER_DB[k]?.team === abbr);
+        }
+      }
+    }
     return base;
   }, [liveSched]);
 
