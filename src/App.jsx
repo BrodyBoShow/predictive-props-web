@@ -680,6 +680,9 @@ export default function NBAPropsModel() {
   const [err, setErr] = useState(null);
   const [actualInput, setActualInput] = useState("");
   const [showMath, setShowMath] = useState(false);
+  const [showBulkLog, setShowBulkLog] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkResult, setBulkResult] = useState(null);
   const ref = useRef(null);
 
   // ── Residual learning — localStorage stores actual outcomes per player/prop ──
@@ -1214,6 +1217,107 @@ export default function NBAPropsModel() {
           </div>
         </div>
 
+        {/* ── Bulk Result Logger ─────────────────────────────────────────── */}
+        {showBulkLog && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
+               onClick={e => { if(e.target===e.currentTarget){ setShowBulkLog(false); setBulkResult(null); setBulkText(""); } }}>
+            <div style={{ background:"#0d1627", border:"1px solid rgba(37,99,235,.35)", borderRadius:16, padding:28, width:"100%", maxWidth:560, maxHeight:"90vh", overflow:"auto" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+                <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:11, letterSpacing:".18em", color:"#2563eb" }}>📋 BULK LOG RESULTS</div>
+                <button onClick={() => { setShowBulkLog(false); setBulkResult(null); setBulkText(""); }}
+                  style={{ background:"none", border:"none", color:"#64748b", cursor:"pointer", fontSize:18, lineHeight:1 }}>✕</button>
+              </div>
+              <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, color:"#64748b", marginBottom:12, lineHeight:1.7 }}>
+                Paste results in any of these formats:<br/>
+                <span style={{color:"#c8d4e8"}}>  Anthony Edwards, 22.15, 18</span>  ← Name, Projected, Actual<br/>
+                <span style={{color:"#c8d4e8"}}>  Julius Randle | 22.54 | 21</span>  ← pipes also work<br/>
+                <span style={{color:"#c8d4e8"}}>  Julius Randle    22.54    21</span>  ← or tab-separated<br/>
+                Projected is optional — if omitted, only actual is recorded but residual calibration won't fire.
+              </div>
+              <textarea
+                value={bulkText}
+                onChange={e => { setBulkText(e.target.value); setBulkResult(null); }}
+                placeholder={"Anthony Edwards, 22.15, 18\nJulius Randle, 22.54, 21\nRudy Gobert, 7.56, 7\n..."}
+                style={{ width:"100%", minHeight:180, background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.1)",
+                  borderRadius:8, color:"#c8d4e8", fontSize:12, fontFamily:"'Azeret Mono',monospace",
+                  padding:12, resize:"vertical", outline:"none", boxSizing:"border-box" }}
+              />
+              {bulkResult && (
+                <div style={{ marginTop:12, fontFamily:"'Azeret Mono',monospace", fontSize:10 }}>
+                  {bulkResult.saved.length > 0 && (
+                    <div style={{ color:"#10b981", marginBottom:6 }}>
+                      ✓ LOGGED {bulkResult.saved.length} player{bulkResult.saved.length !== 1 ? "s" : ""}:<br/>
+                      {bulkResult.saved.map(r => (
+                        <span key={r.name} style={{ display:"block", paddingLeft:12, color:"#6ee7b7" }}>
+                          {r.name} — proj {r.projected} → actual {r.actual} (now {r.n} sample{r.n!==1?"s":""})
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {bulkResult.skipped.length > 0 && (
+                    <div style={{ color:"#f59e0b" }}>
+                      ⚠ Skipped {bulkResult.skipped.length} (player not found in DB):<br/>
+                      {bulkResult.skipped.map(s => (
+                        <span key={s} style={{ display:"block", paddingLeft:12, color:"#fcd34d" }}>{s}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div style={{ display:"flex", gap:8, marginTop:14 }}>
+                <button
+                  onClick={() => {
+                    const lines = bulkText.split("\n").map(l => l.trim()).filter(Boolean);
+                    const saved = [], skipped = [];
+                    const today = new Date().toISOString().slice(0, 10);
+                    lines.forEach(line => {
+                      // split on comma, pipe, or 2+ spaces/tabs
+                      const parts = line.split(/[,|]|\s{2,}|\t/).map(s => s.trim()).filter(Boolean);
+                      if (parts.length < 2) return;
+                      const name = parts[0].toLowerCase().trim();
+                      let projected = null, actual = null;
+                      if (parts.length >= 3) {
+                        projected = parseFloat(parts[1]);
+                        actual    = parseFloat(parts[2]);
+                      } else {
+                        actual = parseFloat(parts[1]);
+                      }
+                      if (isNaN(actual) || actual < 0) return;
+                      // Find closest match in effectiveDB (exact then startsWith then includes)
+                      let matchKey = Object.keys(effectiveDB).find(k => k === name)
+                        || Object.keys(effectiveDB).find(k => k.startsWith(name))
+                        || Object.keys(effectiveDB).find(k => k.includes(name)
+                            || name.split(" ").every(w => k.includes(w)));
+                      if (!matchKey) { skipped.push(parts[0]); return; }
+                      // Save to localStorage — same format as saveResidual
+                      const key = `res_${matchKey}_points`;
+                      let prev = [];
+                      try { prev = JSON.parse(localStorage.getItem(key) || "[]"); } catch {}
+                      const entry = {
+                        actual: +actual.toFixed(2),
+                        ...(projected !== null && !isNaN(projected) ? { projected: +projected.toFixed(2) } : {}),
+                        date: today,
+                      };
+                      const updated = [...prev, entry].slice(-20);
+                      localStorage.setItem(key, JSON.stringify(updated));
+                      saved.push({ name: matchKey, projected: projected?.toFixed(2) ?? "—", actual: actual.toFixed(1), n: updated.length });
+                    });
+                    setBulkResult({ saved, skipped });
+                  }}
+                  style={{ flex:1, padding:"9px 16px", background:"rgba(37,99,235,.15)", border:"1px solid rgba(37,99,235,.35)",
+                    borderRadius:8, color:"#60a5fa", cursor:"pointer", fontSize:10, fontFamily:"'Azeret Mono',monospace", letterSpacing:".12em" }}>
+                  SAVE ALL ✓
+                </button>
+                <button onClick={() => { setBulkText(""); setBulkResult(null); }}
+                  style={{ padding:"9px 14px", background:"none", border:"1px solid rgba(255,255,255,.08)",
+                    borderRadius:8, color:"#64748b", cursor:"pointer", fontSize:10, fontFamily:"'Azeret Mono',monospace" }}>
+                  CLEAR
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="sec">
           <div className="slabel">01 — Select Game</div>
           <div className="card">
@@ -1235,6 +1339,15 @@ export default function NBAPropsModel() {
                 </div>
               );
             }) : <div style={{color:"#2a3550",fontSize:11,padding:"10px 12px"}}>No games confirmed for tomorrow yet.</div>}</div>
+          </div>
+          {/* Bulk log trigger */}
+          <div style={{ textAlign:"right", marginTop:8 }}>
+            <button onClick={() => { setShowBulkLog(true); setBulkResult(null); }}
+              style={{ background:"rgba(16,185,129,.08)", border:"1px solid rgba(16,185,129,.2)", borderRadius:8,
+                color:"#10b981", cursor:"pointer", fontSize:9, fontFamily:"'Azeret Mono',monospace",
+                letterSpacing:".14em", padding:"6px 12px" }}>
+              📋 BULK LOG PAST RESULTS
+            </button>
           </div>
         </div>
 
