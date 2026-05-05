@@ -1198,10 +1198,14 @@ export default function NBAPropsModel() {
   }, [result]);
 
   // ── Dynamic date labels — always reflects current date, no hardcoded strings ──
-  const _todayDate = new Date();
-  const _tomorrowDate = new Date(_todayDate); _tomorrowDate.setDate(_todayDate.getDate() + 1);
-  const todayStr = liveSched?.today || _todayDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const upcomingStr = liveSched?.upcomingLabel || _tomorrowDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  // NBA game-night convention: before 6 AM ET, tonight's games belong to yesterday
+  const _nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const _displayDate = _nowET.getHours() < 6
+    ? new Date(_nowET.getFullYear(), _nowET.getMonth(), _nowET.getDate() - 1)
+    : new Date(_nowET.getFullYear(), _nowET.getMonth(), _nowET.getDate());
+  const _upcomingDate = new Date(_displayDate); _upcomingDate.setDate(_displayDate.getDate() + 1);
+  const todayStr    = liveSched?.today         || _displayDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const upcomingStr = liveSched?.upcomingLabel || _upcomingDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
   return (
     <>
