@@ -23,6 +23,10 @@ const TEAM_DATA = {
   PHI: { rsPace: 100.40, oEFF: 110.3, dEFF: 119.3, eDIFF: -9.0, fullName: "Philadelphia 76ers" },
   MIN: { rsPace: 101.50, oEFF: 112.3, dEFF: 109.3, eDIFF: 3.0, fullName: "Minnesota Timberwolves" },
   DEN: { rsPace: 99.49, oEFF: 109.3, dEFF: 112.3, eDIFF: -3.0, fullName: "Denver Nuggets" },
+  // ── SA added May 4 2026 — R2 vs MIN ──────────────────────────────────────
+  // rsPace: NBA.com RS 2025-26 — NEEDS VERIFICATION from user screenshot
+  // PO oEFF/dEFF: vs POR R1 — NEEDS VERIFICATION from NBAsuffer
+  SAS: { rsPace: 99.20, oEFF: 113.5, dEFF: 107.8, eDIFF: 5.7, fullName: "San Antonio Spurs" },
 };
 const LEAGUE_AVG_dEFF = 113.5;
 
@@ -127,6 +131,16 @@ const PLAYER_DB = {
   "bronny james": E("LAL", 1642400, "G",
     P(6.8, 2.4, 2.8, 0.8, 0.4, 1.2, 44.8, 34.8, 74.4, 16.4, 58, 11.2, 54.4),
     P(4.5, 2.0, 2.0, 0.5, 0.3, 0.8, 42.0, 32.0, 72.0, 14.0, 5, null, null), null),
+  // ── SAS position hints — live NBA API provides all RS/PO stats automatically ──
+  // Static DB only adds pos + onOffDelta (not returned by API).
+  // ⚠ onOffDelta for SA players not yet available — add when R2 data posts on NBA.com
+  "victor wembanyama": E("SAS", 5104157, "F-C", null, null, null),
+  "de'aaron fox":      E("SAS", 1628368, "G",   null, null, null),
+  "devin vassell":     E("SAS", 1630557, "G",   null, null, null),
+  "dylan harper":      E("SAS", 1642283, "G",   null, null, null),
+  "stephon castle":    E("SAS", 1642282, "G",   null, null, null),
+  "julian champagnie": E("SAS", 1631108, "F",   null, null, null),
+
   // ── DEN additions ─────────────────────────────────────────────────────────
   "cameron johnson": E("DEN", 1629661, "F",
     P(14.8, 4.2, 2.8, 0.8, 0.4, 1.2, 46.8, 39.4, 84.4, 29.4, 54, 14.4, 60.4),
@@ -274,6 +288,18 @@ const GAME_ROSTERS = {
     restDays: { BOS: 1, PHI: 1 },
     BOS: ["jayson tatum", "jaylen brown", "payton pritchard", "derrick white", "nikola vucevic", "sam hauser"],
     PHI: ["joel embiid", "tyrese maxey", "paul george", "quentin grimes", "kelly oubre jr", "vj edgecombe", "kyle lowry", "andre drummond", "trendon watford"],
+  },
+
+  // ── R2: SAS @ MIN — Game 1 — May 4 2026 @ MIN ────────────────────────────
+  // SA beat POR 3-1 in R1. MIN beat DEN in R1.
+  // SA: Wembanyama active. Vassell active.
+  // MIN: Edwards ACTIVE (returned), Dosunmu OUT (injury)
+  "sas-min-r2g1": {
+    home: "MIN", away: "SAS", homeTeam: "Minnesota Timberwolves", awayTeam: "San Antonio Spurs",
+    time: "Mon May 4, 6:30 PM ET", title: "R2 Game 1", series: "Series tied 0-0",
+    restDays: { MIN: 3, SAS: 5 },
+    SAS: ["victor wembanyama", "de'aaron fox", "devin vassell", "dylan harper", "stephon castle", "julian champagnie"],
+    MIN: ["anthony edwards", "julius randle", "rudy gobert", "jaden mcdaniels", "naz reid", "mike conley", "terrence shannon jr", "bones hyland", "kyle anderson"],
   },
 
   // ── MAY 3+ Game 7s now pulled DYNAMICALLY from ESPN's public scoreboard API ──
@@ -876,26 +902,35 @@ export default function NBAPropsModel() {
   [liveSched]);
   // Merge live NBA.com stats over static PLAYER_DB — live takes priority for rs/po, static kept for pos/onOffDelta
   const effectiveDB = useMemo(() => {
+    // Live API is the base — covers ALL NBA players with real RS+PO stats.
+    // Static PLAYER_DB only supplements with fields the API doesn't return:
+    // onOffDelta (requires On/Off endpoint) and pos (position string).
+    // If API is offline, fall back to static DB entirely.
     if (!livePlayerDB) return PLAYER_DB;
-    const merged = { ...PLAYER_DB };
+    const merged = {};
+    // Step 1: seed every live player the API returned
     for (const [name, live] of Object.entries(livePlayerDB)) {
-      const stat = merged[name];
+      const stat = PLAYER_DB[name]; // may be undefined — that's fine
       merged[name] = {
         team: live.team,
         pid: live.pid,
-        pos: stat?.pos ?? "?",
+        pos: stat?.pos ?? live.pos ?? "?",
         rs: live.rs,
         po: live.po,
-        onOffDelta: stat?.onOffDelta ?? null,
+        onOffDelta: stat?.onOffDelta ?? null, // only in static; null = not tracked
       };
+    }
+    // Step 2: add any static-only players the API didn't return (e.g. DNP / G-League)
+    for (const [name, stat] of Object.entries(PLAYER_DB)) {
+      if (!merged[name]) merged[name] = stat;
     }
     return merged;
   }, [livePlayerDB]);
 
-  // Merge live team pace/efficiency over static TEAM_DATA
+  // Live team data is primary; static fills teams the API didn't return
   const effectiveTeamData = useMemo(() => {
     if (!liveTeamData) return TEAM_DATA;
-    return { ...TEAM_DATA, ...liveTeamData };
+    return { ...TEAM_DATA, ...liveTeamData }; // live wins for any team it returns
   }, [liveTeamData]);
 
   // Fetch last-5 game logs + vs-opponent splits — placed here so effectiveDB is already initialized
