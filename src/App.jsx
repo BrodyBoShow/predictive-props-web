@@ -1024,7 +1024,7 @@ export default function NBAPropsModel() {
       fetch(`${API_BASE}/recent/${player.pid}`).then(r => r.json()).catch(() => null),
       fetch(`${API_BASE}/vs-opponent/${player.pid}/${opp}`).then(r => r.json()).catch(() => null),
     ]).then(([recentData, vsData]) => {
-      if (recentData?.success) setRecentStats(recentData.recent);
+      if (recentData?.success) setRecentStats(recentData.recent ? { ...recentData.recent, _gp: recentData.gp } : null);
       if (vsData?.success) setVsOpponentStats(vsData.vsOpponent ? { ...vsData.vsOpponent, gp: vsData.gp, source: vsData.source } : null);
     });
   }, [pkey, gid, effectiveDB]);
@@ -1166,6 +1166,7 @@ export default function NBAPropsModel() {
             is_home:        isHome,
             rest_days:      typeof restDays === "number" ? restDays : null,
             l5_avg:         proj.propRecent ?? null,           // client-computed L5 PO avg
+            l5_min:         recentStats?.min ?? null,          // client-computed L5 PO minutes/game
             high_leverage:  /game\s*7|elimination|finals/i.test(game?.title || ""),
             // ── Residual calibration — historical projection/actual pairs from localStorage ──
             prior_residuals: getResiduals(player.key, prop.id),
