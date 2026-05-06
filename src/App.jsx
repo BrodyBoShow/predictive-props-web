@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { BarChart, Bar, XAxis, YAxis, ReferenceLine, Cell, Tooltip, ResponsiveContainer } from "recharts";
 
 // ── NBA API BACKEND ───────────────────────────────────────────────────────────
 // Run: pip install flask flask-cors nba_api && python server.py
@@ -559,13 +560,14 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
 const S = `
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Azeret+Mono:wght@300;400;500;600&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-  body{background:#05080f;color:#c8d4e8;font-family:'Space Grotesk',sans-serif;min-height:100vh;}
-  .root{max-width:820px;margin:0 auto;padding:28px 16px 80px;}
-  .header{margin-bottom:32px;}
-  .htag{font-family:'Azeret Mono',monospace;font-size:10px;letter-spacing:.3em;color:#2563eb;text-transform:uppercase;margin-bottom:8px;}
-  h1{font-size:clamp(40px,8vw,76px);font-weight:700;line-height:.9;color:#e8f0ff;letter-spacing:-.02em;}
-  h1 span{color:#2563eb;}
-  .dbanner{display:inline-flex;align-items:center;gap:8px;margin-top:12px;font-family:'Azeret Mono',monospace;font-size:9px;letter-spacing:.15em;color:#10b981;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);border-radius:4px;padding:4px 10px;}
+  body{background:radial-gradient(ellipse at top, #0a1224 0%, #05080f 60%);color:#c8d4e8;font-family:'Space Grotesk',sans-serif;min-height:100vh;-webkit-font-smoothing:antialiased;}
+  body::before{content:"";position:fixed;top:0;left:0;right:0;height:280px;background:radial-gradient(ellipse at top,rgba(37,99,235,.08) 0%,transparent 70%);pointer-events:none;z-index:0;}
+  .root{max-width:820px;margin:0 auto;padding:32px 18px 96px;position:relative;z-index:1;}
+  .header{margin-bottom:36px;}
+  .htag{font-family:'Azeret Mono',monospace;font-size:10px;letter-spacing:.3em;color:#2563eb;text-transform:uppercase;margin-bottom:10px;font-weight:600;}
+  h1{font-size:clamp(40px,8vw,76px);font-weight:800;line-height:.92;color:#e8f0ff;letter-spacing:-.025em;}
+  h1 span{background:linear-gradient(135deg,#3b82f6 0%,#2563eb 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
+  .dbanner{display:inline-flex;align-items:center;gap:8px;margin-top:14px;font-family:'Azeret Mono',monospace;font-size:9.5px;letter-spacing:.18em;color:#10b981;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.25);border-radius:99px;padding:5px 12px;font-weight:600;}
   .dbanner::before{content:'●';}
   .slabel{font-family:'Azeret Mono',monospace;font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:#2563eb;margin-bottom:12px;display:flex;align-items:center;gap:10px;font-weight:700;}
   .slabel::after{content:'';flex:1;height:1px;background:rgba(37,99,235,.15);}
@@ -574,13 +576,13 @@ const S = `
   .ggl{font-family:'Azeret Mono',monospace;font-size:9px;color:#10b981;letter-spacing:.15em;text-transform:uppercase;margin-bottom:6px;}
   .ggl.up{color:#f59e0b;}
   .glist{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;}
-  .grow{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border:1px solid rgba(255,255,255,.06);border-radius:8px;cursor:pointer;transition:all .12s;gap:10px;}
-  .grow:hover{border-color:rgba(37,99,235,.3);background:rgba(37,99,235,.04);}
-  .grow.sel{border-color:#2563eb;background:rgba(37,99,235,.08);}
-  .gteams{font-size:16px;font-weight:600;color:#e8f0ff;letter-spacing:.03em;}
-  .gvs{color:#2a3550;margin:0 5px;}
-  .gmeta{font-size:11px;color:#3a4a62;margin-top:2px;}
-  .gtime{font-family:'Azeret Mono',monospace;font-size:10px;color:#10b981;white-space:nowrap;}
+  .grow{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border:1px solid rgba(255,255,255,.06);border-radius:12px;cursor:pointer;transition:all .18s cubic-bezier(.4,0,.2,1);gap:10px;background:rgba(255,255,255,.015);}
+  .grow:hover{border-color:rgba(37,99,235,.35);background:rgba(37,99,235,.05);transform:translateX(2px);}
+  .grow.sel{border-color:#2563eb;background:linear-gradient(180deg,rgba(37,99,235,.12) 0%,rgba(37,99,235,.04) 100%);box-shadow:0 4px 14px rgba(37,99,235,.18);}
+  .gteams{font-size:16px;font-weight:700;color:#e8f0ff;letter-spacing:.02em;}
+  .gvs{color:#3a4a62;margin:0 6px;font-weight:400;}
+  .gmeta{font-size:11px;color:#5a6a84;margin-top:3px;}
+  .gtime{font-family:'Azeret Mono',monospace;font-size:10px;color:#10b981;white-space:nowrap;font-weight:600;letter-spacing:.05em;}
   .gtime.up{color:#f59e0b;}
   .acw{position:relative;}
   .ti{width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:12px 14px;font-size:14px;color:#e8f0ff;font-family:'Space Grotesk',sans-serif;outline:none;transition:border-color .15s;}
@@ -1843,6 +1845,69 @@ export default function NBAPropsModel() {
                 {proj.propVsOpp !== null && vsOpponentStats?.gp >= 2 && <div className="sb"><div className="sbl">vs {ot} ({vsOpponentStats.source})</div><div className="sbv" style={{color:"#a78bfa"}}>{proj.propVsOpp}</div><div className="sbs">{vsOpponentStats.gp}g · {pr.label3}</div></div>}
                 <div className="sb hi"><div className="sbl">BLENDED BASE</div><div className="sbv bl">{proj.blended}</div><div className="sbs">{proj.propRecent !== null ? "PO×0.4+RS×0.25+L5×0.35" : "PO×0.6+RS×0.4"}</div></div>
               </div>
+
+              {/* ── L5 GAME-BY-GAME BAR CHART ── */}
+              {(() => {
+                const gameLog = recentStats?._gameLog;
+                if (!gameLog || gameLog.length === 0) return null;
+                const rawVals = extractL5StatValues(gameLog, pr.id);
+                // Show last 10 games max, chronological (oldest → newest)
+                const vals = rawVals.slice(-10);
+                const chartData = vals.map((v, i) => ({
+                  game: `G${rawVals.length - vals.length + i + 1}`,
+                  value: v,
+                  over: v > l,
+                }));
+                if (chartData.length === 0) return null;
+                const maxVal = Math.max(...vals, l, finalProj) * 1.18;
+                const CustomTooltip = ({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null;
+                  const v = payload[0].value;
+                  const hit = l > 0 ? (v > l ? "OVER" : v === l ? "PUSH" : "UNDER") : null;
+                  const hitColor = hit === "OVER" ? "#10b981" : hit === "UNDER" ? "#ef4444" : "#f59e0b";
+                  return (
+                    <div style={{ background: "#0a101e", border: "1px solid rgba(37,99,235,.35)", borderRadius: 8, padding: "8px 14px", fontFamily: "'Azeret Mono',monospace", fontSize: 11 }}>
+                      <div style={{ color: "#64748b", marginBottom: 4, fontSize: 9 }}>{label}</div>
+                      <div style={{ color: "#e8f0ff", fontWeight: 700, fontSize: 16 }}>{v} <span style={{ fontSize: 10, color: "#64748b" }}>{pr.label3}</span></div>
+                      {hit && <div style={{ color: hitColor, fontSize: 10, marginTop: 2 }}>{hit} {l}</div>}
+                    </div>
+                  );
+                };
+                const hitRate = l > 0 ? vals.filter(v => v > l).length : null;
+                return (
+                  <div style={{ marginBottom: 16, background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.07)", borderRadius: 12, padding: "14px 16px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <div style={{ fontFamily: "'Azeret Mono',monospace", fontSize: 9, letterSpacing: ".18em", color: "#94a3b8", textTransform: "uppercase" }}>
+                        L5 GAME LOG ({chartData.length} PO games)
+                        {hitRate !== null && <span style={{ marginLeft: 12, color: hitRate / vals.length >= 0.6 ? "#10b981" : hitRate / vals.length <= 0.4 ? "#ef4444" : "#f59e0b" }}>· {hitRate}/{vals.length} OVER {l}</span>}
+                      </div>
+                      <div style={{ display: "flex", gap: 12, fontFamily: "'Azeret Mono',monospace", fontSize: 9 }}>
+                        <span style={{ color: "#2563eb" }}>─ PROJ {finalProj}</span>
+                        {l > 0 && <span style={{ color: "#f59e0b" }}>── LINE {l}</span>}
+                      </div>
+                    </div>
+                    <ResponsiveContainer width="100%" height={120}>
+                      <BarChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: -28 }}>
+                        <XAxis dataKey="game" tick={{ fontSize: 9, fill: "#3a4a62", fontFamily: "Azeret Mono" }} axisLine={false} tickLine={false} />
+                        <YAxis domain={[0, maxVal]} tick={{ fontSize: 9, fill: "#2a3550" }} axisLine={false} tickLine={false} />
+                        <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(255,255,255,.04)" }} />
+                        {/* Book line */}
+                        {l > 0 && <ReferenceLine y={l} stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 3" />}
+                        {/* Final projection line */}
+                        <ReferenceLine y={finalProj} stroke="#2563eb" strokeWidth={1.5} strokeDasharray="6 3" />
+                        <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={40}>
+                          {chartData.map((entry, index) => (
+                            <Cell
+                              key={index}
+                              fill={l > 0 ? (entry.over ? "rgba(16,185,129,.7)" : "rgba(239,68,68,.6)") : "rgba(37,99,235,.65)"}
+                            />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                );
+              })()}
 
               {/* ── BIG RESULT — Final projection + EV% always prominent ── */}
               <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
