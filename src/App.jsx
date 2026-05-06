@@ -1118,24 +1118,30 @@ export default function NBAPropsModel() {
   };
 
   // ── 4-tier grading: LOCK / ACTIONABLE / WATCH / SKIP ──
-  // Replaces single-axis EV-only grade. Combines edge with model trust signals:
+  // Combines edge with model trust signals:
   //   • EV%        — model edge over book line
   //   • CV         — coefficient of variation from L5 game log (volatility check)
   //   • po_gp      — playoff sample size (rookies / debuts get filtered)
-  //   • bookGap    — |projection - book| / book (model-vs-book disagreement)
-  // Goal: stop betting volatile / small-sample / book-disagrees plays at S-tier.
-  const computeGrade = ({ evPct, cv, poGp, projection, bookLine }) => {
-    const absEv   = Math.abs(evPct || 0);
-    const bookGap = bookLine > 0 ? Math.abs(projection - bookLine) / bookLine : 1;
-    const cvOk30  = cv != null && cv < 0.30;
-    const cvOk40  = cv != null && cv < 0.40;
-    const cvKnown = cv != null;
-    const sampleOk= (poGp || 0) >= 3;
-    const gapOk20 = bookGap < 0.20;
-    const gapOk30 = bookGap < 0.30;
-    if (absEv > 10 && cvOk30 && sampleOk && gapOk20)            return "LOCK";
-    if (absEv > 7  && (cvOk40 || !cvKnown) && sampleOk && gapOk30) return "ACTIONABLE";
-    if (absEv > 4  && gapOk30)                                   return "WATCH";
+  //   • modelLift  — |projection - baseline| / baseline (catches "model is reaching")
+  //
+  // Why modelLift instead of bookGap: a 30%+ disagreement with the book can mean
+  // EITHER (a) book is mispriced — model just stamps the player's averages
+  // correctly while the book sits below them (BET IT), OR (b) model is reaching —
+  // adjustments pushed projection far above the player's own baseline (SKIP IT).
+  // modelLift distinguishes these: tiny lift = book is wrong; big lift = model is.
+  const computeGrade = ({ evPct, cv, poGp, projection, baseline }) => {
+    const absEv     = Math.abs(evPct || 0);
+    const modelLift = baseline > 0 ? Math.abs(projection - baseline) / baseline : 0;
+    const cvOk30    = cv != null && cv < 0.30;
+    const cvOk40    = cv != null && cv < 0.40;
+    const cvKnown   = cv != null;
+    const sampleOk  = (poGp || 0) >= 3;
+    const liftOk10  = modelLift < 0.10;   // ≤10% lift = model conservative
+    const liftOk15  = modelLift < 0.15;   // ≤15% lift = moderate adjustment
+    const liftOk20  = modelLift < 0.20;   // ≤20% lift = aggressive but plausible
+    if (absEv > 10 && cvOk30 && sampleOk && liftOk10)              return "LOCK";
+    if (absEv > 7  && (cvOk40 || !cvKnown) && sampleOk && liftOk15) return "ACTIONABLE";
+    if (absEv > 4  && liftOk20)                                      return "WATCH";
     return "SKIP";
   };
 
@@ -1218,13 +1224,14 @@ export default function NBAPropsModel() {
             const sEdge   = +(sProj - l).toFixed(2);
             const sVerdict= Math.abs(sEdge) < 0.3 ? "push" : sEdge > 0 ? "over" : "under";
             const sEvPct  = l > 0 ? +((sProj - l) / l * 100).toFixed(2) : evPct;
-            // 4-tier grade: LOCK / ACTIONABLE / WATCH / SKIP — uses CV from confidence band
+            // 4-tier grade: LOCK / ACTIONABLE / WATCH / SKIP
+            // baseline = blended pre-correlation baseline (catches "model is reaching")
             const sGrade  = computeGrade({
               evPct:      sEvPct,
               cv:         sd.confidence_band?.cv,
               poGp:       sd.data_quality?.po_gp,
               projection: sProj,
-              bookLine:   l,
+              baseline:   sd.base_projection,
             });
             // Server drivers replace the client impactList in the terminal panel
             const serverDrivers = (sd.drivers || []).map(d => ({ name: d, impact: null }));
@@ -1628,9 +1635,9 @@ export default function NBAPropsModel() {
                   <span>
                     <span style={{ background: confGradeColor, color: "#fff", padding: "2px 10px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: ".12em" }}>{confGrade}</span>
                     <span style={{ color: "#2a3550", fontSize: 9, marginLeft: 10 }}>
-                      {confGrade === "LOCK"       ? "EV>10% · CV<0.30 · sample≥3 · book gap<20%" :
-                       confGrade === "ACTIONABLE" ? "EV>7% · CV<0.40 · book gap<30%" :
-                       confGrade === "WATCH"      ? "EV>4% · weaker confidence" :
+                      {confGrade === "LOCK"       ? "EV>10% · CV<0.30 · sample≥3 · model lift<10%" :
+                       confGrade === "ACTIONABLE" ? "EV>7% · CV<0.40 · model lift<15%" :
+                       confGrade === "WATCH"      ? "EV>4% · model lift<20%" :
                        confGrade === "SKIP"       ? "model trust insufficient — skip" :
                        confGrade === "S-TIER"     ? "EV > 12%" :
                        confGrade === "A-TIER"     ? "EV > 8%" :
@@ -1748,19 +1755,20 @@ export default function NBAPropsModel() {
               {/* ── GRADE BANNER — prominent grade display with full scale legend ── */}
               {(() => {
                 const cb = serverCorr?.confidenceBand;
-                const bookGap = l > 0 ? Math.abs(finalProj - l) / l : null;
+                const baseline = serverCorr?.base ?? proj.blended;
+                const modelLift = baseline > 0 ? Math.abs(finalProj - baseline) / baseline : 0;
                 const gradeReason =
-                  confGrade === "LOCK"       ? `Strong edge (+${Math.abs(finalEvPct).toFixed(1)}%) backed by tight L5 variance and meaningful sample.` :
+                  confGrade === "LOCK"       ? `Strong edge (+${Math.abs(finalEvPct).toFixed(1)}%) — tight L5 variance, healthy sample, model close to baseline.` :
                   confGrade === "ACTIONABLE" ? `Solid edge (+${Math.abs(finalEvPct).toFixed(1)}%) with acceptable variance — good single-unit play.` :
-                  confGrade === "WATCH"      ? `Edge exists but ${cb && cb.cv >= 0.30 ? `L5 volatility is high (CV ${cb.cv})` : bookGap && bookGap >= 0.20 ? "model and book disagree by a lot" : "trust signals are mixed"} — small unit only.` :
-                  confGrade === "SKIP"       ? `Model trust insufficient — ${Math.abs(finalEvPct) < 4 ? "edge below 4%" : "filters blocked higher tier"}.` :
+                  confGrade === "WATCH"      ? `Edge exists but ${cb && cb.cv >= 0.30 ? `L5 volatility is high (CV ${cb.cv})` : modelLift >= 0.15 ? `model lifted ${(modelLift*100).toFixed(0)}% off baseline (aggressive)` : "trust signals are mixed"} — small unit only.` :
+                  confGrade === "SKIP"       ? `Model trust insufficient — ${Math.abs(finalEvPct) < 4 ? "edge below 4%" : modelLift >= 0.20 ? `model lifted ${(modelLift*100).toFixed(0)}% off its own baseline (likely reaching)` : "filters blocked higher tier"}.` :
                   // legacy fallback
                   "EV-based grade (server confidence band unavailable).";
                 const tiers = [
-                  { name: "LOCK",       color: "#a855f7", crit: "EV>10% · CV<0.30 · gp≥3 · gap<20%", short: "Bet hard." },
-                  { name: "ACTIONABLE", color: "#10b981", crit: "EV>7% · CV<0.40 · gap<30%",         short: "Single unit." },
-                  { name: "WATCH",      color: "#2563eb", crit: "EV>4% · weaker confidence",          short: "Small unit / monitor." },
-                  { name: "SKIP",       color: "#64748b", crit: "trust insufficient",                  short: "Don't bet." },
+                  { name: "LOCK",       color: "#a855f7", crit: "EV>10% · CV<0.30 · gp≥3 · lift<10%", short: "Bet hard." },
+                  { name: "ACTIONABLE", color: "#10b981", crit: "EV>7% · CV<0.40 · lift<15%",         short: "Single unit." },
+                  { name: "WATCH",      color: "#2563eb", crit: "EV>4% · lift<20%",                    short: "Small unit / monitor." },
+                  { name: "SKIP",       color: "#64748b", crit: "trust insufficient",                   short: "Don't bet." },
                 ];
                 return (
                   <div style={{ marginBottom: 14, background: `${confGradeColor}0d`, border: `2px solid ${confGradeColor}66`, borderRadius: 14, padding: "18px 20px" }}>
