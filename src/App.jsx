@@ -336,6 +336,7 @@ const PROPS = [
   { id: "pra", label: "Pts+Reb+Ast", icon: "⚡", short: "PRA", statKey: p => +(p.ppg + p.rpg + p.apg).toFixed(1), label3: "PRA" },
   { id: "pa", label: "Pts+Ast", icon: "📊", short: "P+A", statKey: p => +(p.ppg + p.apg).toFixed(1), label3: "P+A" },
   { id: "pr", label: "Pts+Reb", icon: "📈", short: "P+R", statKey: p => +(p.ppg + p.rpg).toFixed(1), label3: "P+R" },
+  { id: "ra", label: "Reb+Ast", icon: "🔄", short: "R+A", statKey: p => +(p.rpg + p.apg).toFixed(1), label3: "R+A" },
   { id: "steals", label: "Steals", icon: "🦅", short: "STL", statKey: p => p.spg, label3: "SPG" },
   { id: "blocks", label: "Blocks", icon: "🧱", short: "BLK", statKey: p => p.bpg, label3: "BPG" },
   { id: "turnovers", label: "Turnovers", icon: "❌", short: "TO", statKey: p => p.topg, label3: "TOV" },
@@ -566,10 +567,10 @@ const S = `
   h1 span{color:#2563eb;}
   .dbanner{display:inline-flex;align-items:center;gap:8px;margin-top:12px;font-family:'Azeret Mono',monospace;font-size:9px;letter-spacing:.15em;color:#10b981;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);border-radius:4px;padding:4px 10px;}
   .dbanner::before{content:'●';}
-  .slabel{font-family:'Azeret Mono',monospace;font-size:9px;letter-spacing:.25em;text-transform:uppercase;color:#2563eb;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+  .slabel{font-family:'Azeret Mono',monospace;font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:#2563eb;margin-bottom:12px;display:flex;align-items:center;gap:10px;font-weight:700;}
   .slabel::after{content:'';flex:1;height:1px;background:rgba(37,99,235,.15);}
   .sec{margin-bottom:16px;}
-  .card{background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:18px;}
+  .card{background:linear-gradient(180deg,rgba(255,255,255,.035) 0%,rgba(255,255,255,.012) 100%);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:20px;box-shadow:0 4px 18px rgba(0,0,0,.12);}
   .ggl{font-family:'Azeret Mono',monospace;font-size:9px;color:#10b981;letter-spacing:.15em;text-transform:uppercase;margin-bottom:6px;}
   .ggl.up{color:#f59e0b;}
   .glist{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;}
@@ -599,41 +600,45 @@ const S = `
   .dinj.gtd{background:rgba(245,158,11,.1);color:#f59e0b;}
   .pconf{margin-top:8px;display:flex;gap:12px;align-items:center;font-family:'Azeret Mono',monospace;font-size:9px;background:rgba(37,99,235,.06);border:1px solid rgba(37,99,235,.15);border-radius:6px;padding:6px 10px;flex-wrap:wrap;}
   .pcn{color:#10b981;} .pcs{color:#4a6090;}
-  .pgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;}
+  .pgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;}
   @media(max-width:480px){.pgrid{grid-template-columns:repeat(3,1fr);}}
-  .pbtn{background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:10px 6px;cursor:pointer;text-align:center;transition:all .12s;color:#c8d4e8;}
-  .pbtn:hover{border-color:rgba(37,99,235,.3);}
-  .pbtn.sel{border-color:#2563eb;background:rgba(37,99,235,.1);}
-  .pico{font-size:16px;margin-bottom:3px;}
-  .psh{font-family:'Azeret Mono',monospace;font-size:10px;color:#2563eb;font-weight:600;}
-  .pnm{font-size:9px;color:#3a4a62;margin-top:1px;}
+  .pbtn{background:linear-gradient(180deg,rgba(255,255,255,.04) 0%,rgba(255,255,255,.015) 100%);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:14px 8px;cursor:pointer;text-align:center;transition:all .18s cubic-bezier(.4,0,.2,1);color:#c8d4e8;position:relative;overflow:hidden;}
+  .pbtn:hover{border-color:rgba(37,99,235,.4);transform:translateY(-2px);box-shadow:0 6px 18px rgba(37,99,235,.12);background:linear-gradient(180deg,rgba(37,99,235,.06) 0%,rgba(37,99,235,.02) 100%);}
+  .pbtn.sel{border-color:#2563eb;background:linear-gradient(180deg,rgba(37,99,235,.18) 0%,rgba(37,99,235,.04) 100%);box-shadow:0 4px 14px rgba(37,99,235,.25),0 0 0 1px rgba(37,99,235,.4) inset;}
+  .pbtn.sel::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:#2563eb;}
+  .pico{font-size:20px;margin-bottom:5px;line-height:1;}
+  .psh{font-family:'Azeret Mono',monospace;font-size:11px;color:#2563eb;font-weight:700;letter-spacing:.05em;}
+  .pnm{font-size:9.5px;color:#5a6a84;margin-top:2px;letter-spacing:.02em;}
+  .pbtn.sel .pnm{color:#94a3b8;}
   .lwrap{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
   .li{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:10px 16px;font-size:22px;font-family:'Azeret Mono',monospace;color:#e8f0ff;width:100px;outline:none;text-align:center;}
   .li:focus{border-color:#2563eb;}
   .lh{font-size:12px;color:#3a4a62;}
-  .btnr{background:#2563eb;color:#fff;border:none;border-radius:8px;padding:13px 26px;font-size:14px;font-weight:600;font-family:'Space Grotesk',sans-serif;cursor:pointer;transition:background .15s;letter-spacing:.02em;}
-  .btnr:hover{background:#1d4ed8;}
-  .btnr:disabled{background:#141c2e;color:#2a3550;cursor:not-allowed;}
-  .btng{background:transparent;color:#2563eb;border:1px solid rgba(37,99,235,.35);border-radius:8px;padding:13px 18px;font-size:12px;font-family:'Space Grotesk',sans-serif;cursor:pointer;}
-  .rp{margin-top:20px;background:rgba(37,99,235,.04);border:1px solid rgba(37,99,235,.18);border-radius:14px;padding:22px;}
-  .rh{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:18px;flex-wrap:wrap;}
-  .rpn{font-size:28px;font-weight:700;color:#e8f0ff;letter-spacing:-.01em;}
-  .rpm{font-family:'Azeret Mono',monospace;font-size:10px;color:#3a4a62;margin-top:4px;}
-  .rsrc{font-family:'Azeret Mono',monospace;font-size:9px;color:#10b981;background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.18);border-radius:4px;padding:3px 8px;margin-top:6px;display:inline-block;}
-  .vb{display:flex;flex-direction:column;align-items:center;padding:10px 18px;border-radius:10px;}
-  .vb.over{background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);}
-  .vb.under{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);}
-  .vb.push{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);}
-  .vt{font-size:22px;font-weight:700;letter-spacing:.05em;}
+  .btnr{background:linear-gradient(180deg,#2563eb 0%,#1d4ed8 100%);color:#fff;border:none;border-radius:10px;padding:14px 28px;font-size:14px;font-weight:700;font-family:'Space Grotesk',sans-serif;cursor:pointer;transition:all .18s;letter-spacing:.03em;box-shadow:0 4px 14px rgba(37,99,235,.35);}
+  .btnr:hover{background:linear-gradient(180deg,#1d4ed8 0%,#1e40af 100%);box-shadow:0 6px 20px rgba(37,99,235,.5);transform:translateY(-1px);}
+  .btnr:disabled{background:#141c2e;color:#2a3550;cursor:not-allowed;box-shadow:none;transform:none;}
+  .btng{background:transparent;color:#2563eb;border:1px solid rgba(37,99,235,.4);border-radius:10px;padding:13px 18px;font-size:12px;font-family:'Space Grotesk',sans-serif;cursor:pointer;transition:all .15s;}
+  .btng:hover{background:rgba(37,99,235,.08);border-color:rgba(37,99,235,.6);}
+  .rp{margin-top:24px;background:linear-gradient(180deg,rgba(37,99,235,.06) 0%,rgba(37,99,235,.02) 100%);border:1px solid rgba(37,99,235,.22);border-radius:18px;padding:26px;box-shadow:0 8px 28px rgba(0,0,0,.18),0 0 0 1px rgba(37,99,235,.04) inset;}
+  .rh{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:20px;flex-wrap:wrap;padding-bottom:18px;border-bottom:1px solid rgba(255,255,255,.05);}
+  .rpn{font-size:30px;font-weight:800;color:#e8f0ff;letter-spacing:-.015em;line-height:1.1;}
+  .rpm{font-family:'Azeret Mono',monospace;font-size:10.5px;color:#5a6a84;margin-top:6px;letter-spacing:.02em;}
+  .rsrc{font-family:'Azeret Mono',monospace;font-size:9px;color:#10b981;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.22);border-radius:99px;padding:4px 10px;margin-top:8px;display:inline-block;letter-spacing:.08em;}
+  .vb{display:flex;flex-direction:column;align-items:center;padding:12px 22px;border-radius:14px;transition:all .2s;box-shadow:0 4px 16px rgba(0,0,0,.15);}
+  .vb.over{background:linear-gradient(180deg,rgba(16,185,129,.14) 0%,rgba(16,185,129,.04) 100%);border:1px solid rgba(16,185,129,.35);}
+  .vb.under{background:linear-gradient(180deg,rgba(239,68,68,.12) 0%,rgba(239,68,68,.03) 100%);border:1px solid rgba(239,68,68,.3);}
+  .vb.push{background:linear-gradient(180deg,rgba(245,158,11,.12) 0%,rgba(245,158,11,.03) 100%);border:1px solid rgba(245,158,11,.3);}
+  .vt{font-size:24px;font-weight:800;letter-spacing:.06em;}
   .vt.over{color:#10b981;} .vt.under{color:#ef4444;} .vt.push{color:#f59e0b;}
-  .vc{font-family:'Azeret Mono',monospace;font-size:9px;color:#3a4a62;margin-top:2px;letter-spacing:.1em;}
-  .sr{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;}
-  .sb{background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.055);border-radius:8px;padding:10px 12px;}
-  .sb.hi{border-color:rgba(37,99,235,.3);background:rgba(37,99,235,.06);}
-  .sbl{font-family:'Azeret Mono',monospace;font-size:9px;color:#3a4a62;letter-spacing:.1em;margin-bottom:4px;text-transform:uppercase;}
-  .sbv{font-size:22px;font-weight:700;color:#e8f0ff;line-height:1;}
+  .vc{font-family:'Azeret Mono',monospace;font-size:10px;color:#3a4a62;margin-top:4px;letter-spacing:.14em;font-weight:700;}
+  .sr{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;}
+  .sb{background:linear-gradient(180deg,rgba(255,255,255,.04) 0%,rgba(255,255,255,.015) 100%);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:14px 16px;transition:all .15s;}
+  .sb:hover{border-color:rgba(255,255,255,.14);transform:translateY(-1px);}
+  .sb.hi{border-color:rgba(37,99,235,.4);background:linear-gradient(180deg,rgba(37,99,235,.10) 0%,rgba(37,99,235,.02) 100%);box-shadow:0 4px 14px rgba(37,99,235,.08);}
+  .sbl{font-family:'Azeret Mono',monospace;font-size:9px;color:#5a6a84;letter-spacing:.14em;margin-bottom:6px;text-transform:uppercase;font-weight:600;}
+  .sbv{font-size:26px;font-weight:800;color:#e8f0ff;line-height:1;letter-spacing:-.01em;}
   .sbv.bl{color:#2563eb;}
-  .sbs{font-family:'Azeret Mono',monospace;font-size:9px;color:#3a4a62;margin-top:2px;}
+  .sbs{font-family:'Azeret Mono',monospace;font-size:9.5px;color:#475569;margin-top:4px;}
   .mb{background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.05);border-radius:8px;padding:14px;margin-bottom:14px;}
   .mbt{font-family:'Azeret Mono',monospace;font-size:9px;color:#3a4a62;letter-spacing:.15em;text-transform:uppercase;margin-bottom:10px;}
   .mr{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.03);font-size:12px;}
@@ -680,6 +685,7 @@ export default function NBAPropsModel() {
   const [err, setErr] = useState(null);
   const [actualInput, setActualInput] = useState("");
   const [showMath, setShowMath] = useState(false);
+  const [showAnalysis, setShowAnalysis] = useState(false);
   const [showBulkLog, setShowBulkLog] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [bulkResult, setBulkResult] = useState(null);
@@ -1111,6 +1117,7 @@ export default function NBAPropsModel() {
     if (id === "pra")            return gameLog.map(g => (g.pts||0) + (g.reb||0) + (g.ast||0));
     if (id === "pa")             return gameLog.map(g => (g.pts||0) + (g.ast||0));
     if (id === "pr")             return gameLog.map(g => (g.pts||0) + (g.reb||0));
+    if (id === "ra")             return gameLog.map(g => (g.reb||0) + (g.ast||0));
     if (id === "three_pointers") return gameLog.map(g => g.fg3m || 0);
     const propStatKey = { points:"pts", assists:"ast", rebounds:"reb", steals:"stl", blocks:"blk" };
     const k = propStatKey[id] || "pts";
@@ -1803,6 +1810,201 @@ export default function NBAPropsModel() {
                         );
                       })}
                     </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── FULL ANALYSIS DROPDOWN — deep-dive write-up of the prop ── */}
+              <button
+                onClick={() => setShowAnalysis(v => !v)}
+                style={{ width: "100%", padding: "12px 18px", marginBottom: showAnalysis ? 0 : 12,
+                  background: showAnalysis ? `${confGradeColor}18` : `${confGradeColor}0a`,
+                  border: `1px solid ${confGradeColor}55`,
+                  borderRadius: showAnalysis ? "10px 10px 0 0" : 10,
+                  color: confGradeColor,
+                  cursor: "pointer", fontFamily: "'Azeret Mono',monospace", fontSize: 11,
+                  letterSpacing: ".14em", fontWeight: 700,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                  transition: "all .15s" }}>
+                {showAnalysis ? "▲ HIDE ANALYSIS" : "▼ FULL PROP ANALYSIS"}
+              </button>
+              {showAnalysis && (() => {
+                const cb = serverCorr?.confidenceBand;
+                const dq = serverCorr?.dataQuality || {};
+                const baseline = serverCorr?.base ?? proj.blended;
+                const modelLift = baseline > 0 ? Math.abs(finalProj - baseline) / baseline : 0;
+                const liftPct = (finalProj - baseline) / baseline * 100;
+                const bookGap = l > 0 ? Math.abs(finalProj - l) / l * 100 : 0;
+                const straddles = cb && l > 0 && cb.floor <= l && cb.ceiling >= l;
+                const trustLabel = !cb ? "n/a" : cb.trust_score >= 70 ? "HIGH" : cb.trust_score >= 40 ? "MODERATE" : "LOW";
+                const trustColor = !cb ? "#64748b" : cb.trust_score >= 70 ? "#10b981" : cb.trust_score >= 40 ? "#f59e0b" : "#ef4444";
+                const Section = ({ title, children, color = "#94a3b8" }) => (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 9, letterSpacing: ".22em", color, marginBottom: 8, fontFamily: "'Azeret Mono',monospace", fontWeight: 700 }}>
+                      {title}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#c8d4e8", lineHeight: 1.65 }}>{children}</div>
+                  </div>
+                );
+                const Stat = ({ k, v, hl }) => (
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,.04)" }}>
+                    <span style={{ color: "#64748b", fontFamily: "'Azeret Mono',monospace", fontSize: 11 }}>{k}</span>
+                    <span style={{ color: hl || "#e8f0ff", fontFamily: "'Azeret Mono',monospace", fontSize: 11, fontWeight: 600 }}>{v}</span>
+                  </div>
+                );
+                const filterRows = [
+                  { label: "EV Edge",       value: `${finalEvPct > 0 ? "+" : ""}${finalEvPct.toFixed(1)}%`, ok: Math.abs(finalEvPct) > 4, req: ">4%", tier: Math.abs(finalEvPct) > 10 ? "LOCK" : Math.abs(finalEvPct) > 7 ? "ACT" : Math.abs(finalEvPct) > 4 ? "WATCH" : "FAIL" },
+                  { label: "L5 Variance (CV)", value: cb ? cb.cv.toFixed(3) : "n/a", ok: cb && cb.cv < 0.40, req: "<0.40 (ACT) · <0.30 (LOCK)", tier: cb ? (cb.cv < 0.30 ? "LOCK" : cb.cv < 0.40 ? "ACT" : "WATCH") : "—" },
+                  { label: "Sample Size",   value: `${dq.po_gp || 0} PO games`, ok: (dq.po_gp || 0) >= 3, req: "≥3", tier: (dq.po_gp || 0) >= 3 ? "LOCK" : "FAIL" },
+                  { label: "Model Lift",    value: `${liftPct >= 0 ? "+" : ""}${liftPct.toFixed(1)}%`, ok: modelLift < 0.20, req: "<20% (WATCH) · <15% (ACT) · <10% (LOCK)", tier: modelLift < 0.10 ? "LOCK" : modelLift < 0.15 ? "ACT" : modelLift < 0.20 ? "WATCH" : "FAIL" },
+                ];
+
+                return (
+                  <div style={{ background: `${confGradeColor}06`, border: `1px solid ${confGradeColor}55`, borderTop: 0, borderRadius: "0 0 10px 10px", padding: "20px 22px", marginBottom: 14 }}>
+
+                    {/* — Quick Summary — */}
+                    <Section title="◆ EXECUTIVE SUMMARY" color={confGradeColor}>
+                      <p style={{ margin: 0 }}>
+                        <strong style={{ color: "#e8f0ff" }}>{dname}</strong> ({pt}) projects to <strong style={{ color: confGradeColor }}>{finalProj} {pr.label3}</strong> tonight vs {ot},
+                        compared to a book line of <strong>{l}</strong>. The model leans <strong style={{ color: finalEc }}>{finalVerdict.toUpperCase()}</strong> with a
+                        <strong style={{ color: finalEvPct > 0 ? "#10b981" : "#ef4444" }}> {finalEvPct > 0 ? "+" : ""}{finalEvPct}% expected value edge</strong>.
+                        Final grade: <strong style={{ color: confGradeColor }}>{confGrade}</strong>.
+                        {confGrade === "LOCK" && " This is the model's highest-confidence type of play — strong edge with reliable supporting signals."}
+                        {confGrade === "ACTIONABLE" && " Solid edge with acceptable trust signals — bet it, single unit."}
+                        {confGrade === "WATCH" && " Edge exists but at least one trust signal is weak. Bet small or skip if you have better plays available."}
+                        {confGrade === "SKIP" && " The model can't honestly support this play at high confidence. Skip."}
+                      </p>
+                    </Section>
+
+                    {/* — Baseline Math — */}
+                    <Section title="◆ HOW THE BASELINE WAS BUILT">
+                      <Stat k="Regular Season Avg" v={`${proj.propRS} ${pr.label3} (${player.rs.gp}g)`} />
+                      <Stat k="Playoff Avg"        v={`${proj.propPO} ${pr.label3} (${player.po.gp}g)`} />
+                      {proj.propRecent !== null && <Stat k="L5 PO Avg" v={`${proj.propRecent} ${pr.label3}`} hl="#f59e0b" />}
+                      <Stat k="Blended Baseline"   v={`${baseline} ${pr.label3}`} hl="#2563eb" />
+                      {dq.use_rate_base && (
+                        <p style={{ margin: "10px 0 0 0", fontSize: 11, color: "#94a3b8", fontStyle: "italic" }}>
+                          ✓ Rate×Minutes baseline active — model used per-minute production rates × projected minutes (more robust than per-game averages).
+                        </p>
+                      )}
+                    </Section>
+
+                    {/* — Adjustment Cascade — */}
+                    {serverCorr?.drivers && serverCorr.drivers.length > 0 && (
+                      <Section title="◆ ADJUSTMENT CASCADE (server output)">
+                        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 11.5, lineHeight: 1.65 }}>
+                          {serverCorr.drivers.map((d, i) => (
+                            <li key={i} style={{ color: "#c8d4e8", marginBottom: 6 }}>{d}</li>
+                          ))}
+                        </ul>
+                        <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(37,99,235,.08)", borderRadius: 6, fontSize: 11.5 }}>
+                          <span style={{ color: "#64748b" }}>Net effect: baseline </span>
+                          <strong style={{ color: "#94a3b8" }}>{baseline}</strong>
+                          <span style={{ color: "#64748b" }}> → corrected </span>
+                          <strong style={{ color: "#2563eb" }}>{finalProj}</strong>
+                          <span style={{ color: liftPct >= 0 ? "#10b981" : "#ef4444", marginLeft: 8 }}>
+                            ({liftPct >= 0 ? "+" : ""}{liftPct.toFixed(1)}%)
+                          </span>
+                        </div>
+                      </Section>
+                    )}
+
+                    {/* — Confidence Analysis — */}
+                    {cb && (
+                      <Section title="◆ CONFIDENCE BAND (variance from L5)">
+                        <Stat k="L5 Mean"         v={`${cb.mean} ${pr.label3}`} />
+                        <Stat k="Std Dev (σ)"     v={`${cb.std} ${pr.label3}`} />
+                        <Stat k="Coefficient of Variation" v={cb.cv.toFixed(3)} hl={cb.cv < 0.30 ? "#10b981" : cb.cv < 0.40 ? "#f59e0b" : "#ef4444"} />
+                        <Stat k="68% Probability Range" v={`${cb.floor} – ${cb.ceiling} ${pr.label3}`} />
+                        <Stat k="Trust Score"     v={`${cb.trust_score}/100 — ${trustLabel}`} hl={trustColor} />
+                        <Stat k="Sample Size"     v={`${cb.n} games`} />
+                        {straddles && (
+                          <p style={{ margin: "10px 0 0 0", padding: "10px 14px", background: "rgba(239,68,68,.10)", border: "1px solid rgba(239,68,68,.3)", borderRadius: 6, fontSize: 11.5, color: "#fca5a5" }}>
+                            ⚠ <strong>Band straddles the line</strong> — book line of {l} sits inside the model's 68% probability range ({cb.floor}–{cb.ceiling}). Both outcomes are within normal variance.
+                          </p>
+                        )}
+                      </Section>
+                    )}
+
+                    {/* — Filter Verdict — */}
+                    <Section title="◆ FILTER VERDICT">
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid rgba(255,255,255,.1)" }}>
+                            <th style={{ textAlign: "left", padding: "6px 8px", color: "#64748b", fontWeight: 600 }}>FILTER</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px", color: "#64748b", fontWeight: 600 }}>VALUE</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px", color: "#64748b", fontWeight: 600 }}>REQUIRES</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px", color: "#64748b", fontWeight: 600 }}>TIER</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filterRows.map((f, i) => (
+                            <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,.04)" }}>
+                              <td style={{ padding: "6px 8px", color: "#c8d4e8", fontFamily: "'Azeret Mono',monospace" }}>{f.label}</td>
+                              <td style={{ padding: "6px 8px", textAlign: "right", color: "#e8f0ff", fontFamily: "'Azeret Mono',monospace", fontWeight: 600 }}>{f.value}</td>
+                              <td style={{ padding: "6px 8px", textAlign: "right", color: "#64748b", fontFamily: "'Azeret Mono',monospace", fontSize: 10 }}>{f.req}</td>
+                              <td style={{ padding: "6px 8px", textAlign: "right", color: f.tier === "LOCK" ? "#a855f7" : f.tier === "ACT" ? "#10b981" : f.tier === "WATCH" ? "#2563eb" : "#ef4444", fontFamily: "'Azeret Mono',monospace", fontWeight: 700 }}>{f.tier}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <p style={{ margin: "12px 0 0 0", fontSize: 11.5, color: "#94a3b8" }}>
+                        Final tier = <strong style={{ color: confGradeColor }}>{confGrade}</strong> (lowest passing tier across all filters; SKIP if any blocks WATCH).
+                        {bookGap > 0 && <> Book disagreement: <strong>{bookGap.toFixed(1)}%</strong>.</>}
+                      </p>
+                    </Section>
+
+                    {/* — Recommendation — */}
+                    <Section title="◆ ACTION" color={confGradeColor}>
+                      <div style={{ padding: "14px 18px", background: `${confGradeColor}10`, border: `1px solid ${confGradeColor}55`, borderRadius: 8 }}>
+                        {confGrade === "LOCK" && (
+                          <p style={{ margin: 0, fontSize: 13, color: "#e8f0ff" }}>
+                            🔒 <strong>Bet hard.</strong> Strong edge ({finalEvPct > 0 ? "+" : ""}{finalEvPct}%), tight L5 variance (CV {cb?.cv?.toFixed(3) || "n/a"}), and the model is barely lifting off baseline (no overreach). This is the kind of play that drives long-term EV.
+                          </p>
+                        )}
+                        {confGrade === "ACTIONABLE" && (
+                          <p style={{ margin: 0, fontSize: 13, color: "#e8f0ff" }}>
+                            ✅ <strong>Single unit.</strong> Solid edge with acceptable variance. One filter prevented LOCK — typically CV slightly above 0.30 or lift slightly above 10%. Bet at standard size.
+                          </p>
+                        )}
+                        {confGrade === "WATCH" && (
+                          <p style={{ margin: 0, fontSize: 13, color: "#e8f0ff" }}>
+                            👀 <strong>Small unit or skip.</strong> Edge exists but trust signals are weak ({cb && cb.cv >= 0.40 ? `high CV ${cb.cv.toFixed(3)}` : modelLift >= 0.15 ? `lift ${(modelLift*100).toFixed(0)}% above baseline` : "mixed signals"}). Use as a flex pick or pass on it.
+                          </p>
+                        )}
+                        {confGrade === "SKIP" && (
+                          <p style={{ margin: 0, fontSize: 13, color: "#e8f0ff" }}>
+                            ⛔ <strong>Don't bet.</strong> {Math.abs(finalEvPct) < 4 ? `Edge is too thin (${finalEvPct > 0 ? "+" : ""}${finalEvPct}%) — projection sits effectively on the line.` : modelLift >= 0.20 ? `Model lifted ${(modelLift*100).toFixed(0)}% above baseline — projection is reaching past the player's actual averages.` : "Filters blocked all higher tiers."}
+                          </p>
+                        )}
+                      </div>
+                    </Section>
+
+                    {/* — Data Quality — */}
+                    <Section title="◆ DATA QUALITY (which signals fired)">
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 6, fontSize: 11 }}>
+                        {[
+                          ["Tracking", dq.has_tracking],
+                          ["Matchup Δ", dq.has_matchup],
+                          ["Scoring", dq.has_scoring],
+                          ["Team Defense", dq.has_team_def],
+                          ["Splits H/R", dq.has_splits],
+                          ["Clutch", dq.has_clutch],
+                          ["Pace", dq.has_pace],
+                          ["L5 Avg", dq.has_l5],
+                          ["L5 Minutes", dq.has_l5_min],
+                          ["L5 Game Log", dq.has_l5_games],
+                          ["Rate×Min Base", dq.use_rate_base],
+                          ["Rest Days", dq.has_rest],
+                        ].map(([k, v]) => (
+                          <div key={k} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: v ? "rgba(16,185,129,.08)" : "rgba(100,116,139,.05)", border: `1px solid ${v ? "rgba(16,185,129,.2)" : "rgba(100,116,139,.1)"}`, borderRadius: 4 }}>
+                            <span style={{ color: v ? "#10b981" : "#475569", fontWeight: 700 }}>{v ? "✓" : "·"}</span>
+                            <span style={{ color: v ? "#c8d4e8" : "#64748b", fontFamily: "'Azeret Mono',monospace", fontSize: 10 }}>{k}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </Section>
+
                   </div>
                 );
               })()}
