@@ -1293,7 +1293,8 @@ export default function NBAPropsModel() {
               serverCorr: { projection: sProj, base: sd.base_projection,
                             evEdge: sd.ev_edge, breakdown: sd.breakdown,
                             drivers: sd.drivers, dataQuality: sd.data_quality,
-                            confidenceBand: sd.confidence_band, bookGap: sd.book_gap },
+                            confidenceBand: sd.confidence_band, bookGap: sd.book_gap,
+                            monteCarlo: sd.monte_carlo },
               impactList: serverDrivers.length > 0 ? serverDrivers : prev.impactList,
             } : prev);
           }
@@ -1944,6 +1945,124 @@ export default function NBAPropsModel() {
 
               {/* Edge confidence bar */}
               <div className="et" style={{ marginBottom: 14 }}><div className="ef" style={{ width: `${finalEpct * 100}%`, background: finalEc }} /></div>
+
+              {/* ── MONTE CARLO — 10K bootstrap simulations from L5 distribution ── */}
+              {(() => {
+                const mc = serverCorr?.monteCarlo;
+                if (!mc) return null;
+                const pOver  = mc.prob_over;
+                const pUnder = mc.prob_under;
+                const pPush  = mc.prob_push || 0;
+                const fairLine = mc.implied_fair_line;
+                const fairLineGap = l > 0 ? +(fairLine - l).toFixed(2) : 0;
+                const fairLineColor = Math.abs(fairLineGap) < 0.5 ? "#f59e0b" : fairLineGap > 0 ? "#10b981" : "#ef4444";
+
+                // Probability bar: width % for over and under
+                const overPct  = pOver  != null ? Math.round(pOver  * 100) : 50;
+                const underPct = pUnder != null ? Math.round(pUnder * 100) : 50;
+                const pushPct  = Math.max(0, 100 - overPct - underPct);
+
+                // Strong-side highlight
+                const strongSide = pOver > pUnder ? "OVER" : pUnder > pOver ? "UNDER" : "EVEN";
+                const strongPct  = Math.max(overPct, underPct);
+                const strongColor = strongSide === "OVER" ? "#10b981" : strongSide === "UNDER" ? "#ef4444" : "#f59e0b";
+
+                // Fair-odds (decimal). Vegas typically vigs both sides to ~1.91 (–110).
+                // If our fair_odds_over < 1.91, the OVER is +EV at standard juice.
+                const fairOddsOver  = mc.fair_odds_over;
+                const fairOddsUnder = mc.fair_odds_under;
+                const overEdgeVsVig  = fairOddsOver  ? +((1.91 / fairOddsOver  - 1) * 100).toFixed(1) : null;
+                const underEdgeVsVig = fairOddsUnder ? +((1.91 / fairOddsUnder - 1) * 100).toFixed(1) : null;
+
+                return (
+                  <div style={{ marginBottom: 14, background: "rgba(168,85,247,.04)", border: "1px solid rgba(168,85,247,.25)", borderRadius: 14, padding: "16px 18px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ fontFamily: "'Azeret Mono',monospace", fontSize: 9, letterSpacing: ".22em", color: "#a855f7", fontWeight: 700 }}>🎲 MONTE CARLO</div>
+                        <span style={{ fontFamily: "'Azeret Mono',monospace", fontSize: 9, color: "#475569" }}>{(mc.n_sims/1000).toFixed(0)}K bootstrap sims · empirical L5 distribution</span>
+                      </div>
+                      <div style={{ fontFamily: "'Azeret Mono',monospace", fontSize: 10, color: "#94a3b8" }}>
+                        FAIR LINE <span style={{ color: fairLineColor, fontWeight: 700, fontSize: 13 }}>{fairLine}</span>
+                        {l > 0 && <span style={{ color: fairLineColor, marginLeft: 6 }}>({fairLineGap >= 0 ? "+" : ""}{fairLineGap} vs book)</span>}
+                      </div>
+                    </div>
+
+                    {/* Stacked horizontal probability bar */}
+                    {pOver != null && (
+                      <>
+                        <div style={{ display: "flex", height: 28, borderRadius: 6, overflow: "hidden", background: "rgba(0,0,0,.3)", marginBottom: 8 }}>
+                          {overPct > 0 && (
+                            <div style={{
+                              width: `${overPct}%`,
+                              background: "linear-gradient(90deg,rgba(16,185,129,.8) 0%,rgba(16,185,129,.5) 100%)",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontFamily: "'Azeret Mono',monospace", fontSize: 11, fontWeight: 700, color: "#fff",
+                              borderRight: pushPct > 0 || underPct > 0 ? "1px solid rgba(0,0,0,.3)" : "none",
+                            }}>{overPct >= 12 && `OVER ${overPct}%`}</div>
+                          )}
+                          {pushPct > 0 && (
+                            <div style={{
+                              width: `${pushPct}%`,
+                              background: "rgba(245,158,11,.6)",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontFamily: "'Azeret Mono',monospace", fontSize: 10, color: "#fff",
+                            }}>{pushPct >= 8 && `PUSH ${pushPct}%`}</div>
+                          )}
+                          {underPct > 0 && (
+                            <div style={{
+                              width: `${underPct}%`,
+                              background: "linear-gradient(90deg,rgba(239,68,68,.5) 0%,rgba(239,68,68,.8) 100%)",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontFamily: "'Azeret Mono',monospace", fontSize: 11, fontWeight: 700, color: "#fff",
+                            }}>{underPct >= 12 && `UNDER ${underPct}%`}</div>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, fontFamily: "'Azeret Mono',monospace", fontSize: 10 }}>
+                          <span style={{ color: "#10b981" }}>OVER {l} → {(pOver * 100).toFixed(1)}%{fairOddsOver && <span style={{ color: "#475569" }}> · fair {fairOddsOver}</span>}{overEdgeVsVig != null && overEdgeVsVig > 0 && <span style={{ color: "#10b981", marginLeft: 4, fontWeight: 700 }}>+{overEdgeVsVig}% vs -110</span>}</span>
+                          <span style={{ color: "#ef4444" }}>{underEdgeVsVig != null && underEdgeVsVig > 0 && <span style={{ color: "#ef4444", fontWeight: 700, marginRight: 4 }}>+{underEdgeVsVig}% vs -110</span>}{fairOddsUnder && <span style={{ color: "#475569" }}>fair {fairOddsUnder} · </span>}UNDER {l} → {(pUnder * 100).toFixed(1)}%</span>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Percentile distribution */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, marginBottom: 4 }}>
+                      {[
+                        { p: "P10", v: mc.p10, label: "Floor", color: "#64748b" },
+                        { p: "P25", v: mc.p25, label: "", color: "#64748b" },
+                        { p: "P50", v: mc.p50, label: "Median", color: "#a855f7" },
+                        { p: "P75", v: mc.p75, label: "", color: "#64748b" },
+                        { p: "P90", v: mc.p90, label: "Ceiling", color: "#64748b" },
+                      ].map(x => {
+                        const isLineSide = l > 0 && ((x.v > l && pOver > pUnder) || (x.v < l && pUnder > pOver));
+                        return (
+                          <div key={x.p} style={{
+                            background: x.p === "P50" ? "rgba(168,85,247,.10)" : "rgba(255,255,255,.025)",
+                            border: `1px solid ${x.p === "P50" ? "rgba(168,85,247,.35)" : "rgba(255,255,255,.06)"}`,
+                            borderRadius: 6, padding: "8px 6px", textAlign: "center",
+                          }}>
+                            <div style={{ fontFamily: "'Azeret Mono',monospace", fontSize: 8, letterSpacing: ".12em", color: x.color, marginBottom: 2 }}>{x.p}</div>
+                            <div style={{ fontFamily: "'Azeret Mono',monospace", fontSize: 14, fontWeight: 700, color: x.p === "P50" ? "#a855f7" : "#e8f0ff" }}>{x.v}</div>
+                            {x.label && <div style={{ fontFamily: "'Azeret Mono',monospace", fontSize: 8, color: "#475569", marginTop: 2 }}>{x.label}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Interpretation footnote */}
+                    <div style={{ marginTop: 10, padding: "8px 12px", background: "rgba(0,0,0,.2)", borderRadius: 6, fontSize: 10.5, color: "#94a3b8", lineHeight: 1.55 }}>
+                      {pOver != null ? (
+                        <>
+                          <strong style={{ color: strongColor }}>{strongSide}</strong> hits in <strong style={{ color: strongColor }}>{strongPct}%</strong> of 10K simulations.
+                          {l > 0 && Math.abs(fairLineGap) >= 0.5 && <> Model's fair line ({fairLine}) sits <strong>{Math.abs(fairLineGap)} {pr.label3}</strong> {fairLineGap > 0 ? "above" : "below"} the book — {Math.abs(fairLineGap) > 1.5 ? "significant mispricing." : "modest edge."}</>}
+                          {(overEdgeVsVig != null && overEdgeVsVig > 5) || (underEdgeVsVig != null && underEdgeVsVig > 5) ? <> Both sides priced at standard -110 vig — {strongSide} clears the vig comfortably.</> : null}
+                        </>
+                      ) : (
+                        <>Distribution percentiles only — no book line provided.</>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* ── GRADE BANNER — prominent grade display with full scale legend ── */}
               {(() => {
