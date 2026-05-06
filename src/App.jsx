@@ -1577,9 +1577,9 @@ export default function NBAPropsModel() {
                   <div className="rpm">{pt} vs {ot} · {g.title} · {pr.label}</div>
                   <div className="rsrc">SOURCES: {nbaApiStatus === "live" ? "✓ NBA.COM LIVE" : "◎ STATIC DB"} · NBASTUFFER.COM · SPORTRADAR</div>
                 </div>
-                <div className={`vb ${verdict}`}>
-                  <div className={`vt ${verdict}`}>{verdict.toUpperCase()}</div>
-                  <div className="vc">{conf} CONFIDENCE</div>
+                <div className={`vb ${verdict}`} style={{ borderColor: `${confGradeColor}80`, background: `${confGradeColor}14` }}>
+                  <div className={`vt ${verdict}`} style={{ color: confGradeColor }}>{verdict.toUpperCase()}</div>
+                  <div className="vc" style={{ color: confGradeColor, fontWeight: 700, letterSpacing: ".15em" }}>{confGrade}</div>
                 </div>
               </div>
 
@@ -1744,6 +1744,60 @@ export default function NBAPropsModel() {
 
               {/* Edge confidence bar */}
               <div className="et" style={{ marginBottom: 14 }}><div className="ef" style={{ width: `${finalEpct * 100}%`, background: finalEc }} /></div>
+
+              {/* ── GRADE BANNER — prominent grade display with full scale legend ── */}
+              {(() => {
+                const cb = serverCorr?.confidenceBand;
+                const bookGap = l > 0 ? Math.abs(finalProj - l) / l : null;
+                const gradeReason =
+                  confGrade === "LOCK"       ? `Strong edge (+${Math.abs(finalEvPct).toFixed(1)}%) backed by tight L5 variance and meaningful sample.` :
+                  confGrade === "ACTIONABLE" ? `Solid edge (+${Math.abs(finalEvPct).toFixed(1)}%) with acceptable variance — good single-unit play.` :
+                  confGrade === "WATCH"      ? `Edge exists but ${cb && cb.cv >= 0.30 ? `L5 volatility is high (CV ${cb.cv})` : bookGap && bookGap >= 0.20 ? "model and book disagree by a lot" : "trust signals are mixed"} — small unit only.` :
+                  confGrade === "SKIP"       ? `Model trust insufficient — ${Math.abs(finalEvPct) < 4 ? "edge below 4%" : "filters blocked higher tier"}.` :
+                  // legacy fallback
+                  "EV-based grade (server confidence band unavailable).";
+                const tiers = [
+                  { name: "LOCK",       color: "#a855f7", crit: "EV>10% · CV<0.30 · gp≥3 · gap<20%", short: "Bet hard." },
+                  { name: "ACTIONABLE", color: "#10b981", crit: "EV>7% · CV<0.40 · gap<30%",         short: "Single unit." },
+                  { name: "WATCH",      color: "#2563eb", crit: "EV>4% · weaker confidence",          short: "Small unit / monitor." },
+                  { name: "SKIP",       color: "#64748b", crit: "trust insufficient",                  short: "Don't bet." },
+                ];
+                return (
+                  <div style={{ marginBottom: 14, background: `${confGradeColor}0d`, border: `2px solid ${confGradeColor}66`, borderRadius: 14, padding: "18px 20px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 14, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <div style={{ fontSize: 9, letterSpacing: ".22em", color: "#64748b", fontFamily: "'Azeret Mono',monospace" }}>MODEL GRADE</div>
+                        <div style={{ fontSize: 38, fontWeight: 800, color: confGradeColor, fontFamily: "'Azeret Mono',monospace", letterSpacing: ".08em", lineHeight: 1 }}>{confGrade}</div>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 220, fontSize: 12, color: "#c8d4e8", lineHeight: 1.5 }}>
+                        {gradeReason}
+                      </div>
+                    </div>
+                    {/* Grade scale legend — all 4 tiers, current one highlighted */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+                      {tiers.map(t => {
+                        const active = confGrade === t.name;
+                        return (
+                          <div key={t.name} style={{
+                            background: active ? `${t.color}22` : "rgba(255,255,255,.02)",
+                            border: `1px solid ${active ? t.color : "rgba(255,255,255,.06)"}`,
+                            borderRadius: 8, padding: "8px 10px",
+                            opacity: active ? 1 : 0.55,
+                            transition: "all .15s",
+                          }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: t.color }} />
+                              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".12em", color: t.color, fontFamily: "'Azeret Mono',monospace" }}>{t.name}</div>
+                            </div>
+                            <div style={{ fontSize: 9, color: "#64748b", fontFamily: "'Azeret Mono',monospace", lineHeight: 1.4, marginBottom: 3 }}>{t.crit}</div>
+                            <div style={{ fontSize: 10, color: active ? "#c8d4e8" : "#475569", fontWeight: active ? 600 : 400 }}>{t.short}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* ── SHOW CALCULATION TOGGLE ── */}
               <button
