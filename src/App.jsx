@@ -1024,7 +1024,7 @@ export default function NBAPropsModel() {
       fetch(`${API_BASE}/recent/${player.pid}`).then(r => r.json()).catch(() => null),
       fetch(`${API_BASE}/vs-opponent/${player.pid}/${opp}`).then(r => r.json()).catch(() => null),
     ]).then(([recentData, vsData]) => {
-      if (recentData?.success) setRecentStats(recentData.recent ? { ...recentData.recent, _gp: recentData.gp } : null);
+      if (recentData?.success) setRecentStats(recentData.recent ? { ...recentData.recent, _gp: recentData.gp, _gameLog: recentData.gameLog || [] } : null);
       if (vsData?.success) setVsOpponentStats(vsData.vsOpponent ? { ...vsData.vsOpponent, gp: vsData.gp, source: vsData.source } : null);
     });
   }, [pkey, gid, effectiveDB]);
@@ -1103,6 +1103,42 @@ export default function NBAPropsModel() {
   const reset = () => { setResult(null); setErr(null); setPname(""); setPkey(null); setProp(null); setLine(""); setDdOpen(false); setActualInput(""); };
   const selGame = id => { setGid(id); setPname(""); setPkey(null); setResult(null); setErr(null); setDdOpen(false); };
 
+  // ── Extract L5 game-by-game stat values for the active prop type ──
+  // Feeds server's _confidence_band → variance/floor/ceiling/trust score.
+  const extractL5StatValues = (gameLog, propId) => {
+    if (!gameLog || gameLog.length === 0) return [];
+    const id = (propId || "").toLowerCase();
+    if (id === "pra")            return gameLog.map(g => (g.pts||0) + (g.reb||0) + (g.ast||0));
+    if (id === "pa")             return gameLog.map(g => (g.pts||0) + (g.ast||0));
+    if (id === "pr")             return gameLog.map(g => (g.pts||0) + (g.reb||0));
+    if (id === "three_pointers") return gameLog.map(g => g.fg3m || 0);
+    const propStatKey = { points:"pts", assists:"ast", rebounds:"reb", steals:"stl", blocks:"blk" };
+    const k = propStatKey[id] || "pts";
+    return gameLog.map(g => g[k] || 0);
+  };
+
+  // ── 4-tier grading: LOCK / ACTIONABLE / WATCH / SKIP ──
+  // Replaces single-axis EV-only grade. Combines edge with model trust signals:
+  //   • EV%        — model edge over book line
+  //   • CV         — coefficient of variation from L5 game log (volatility check)
+  //   • po_gp      — playoff sample size (rookies / debuts get filtered)
+  //   • bookGap    — |projection - book| / book (model-vs-book disagreement)
+  // Goal: stop betting volatile / small-sample / book-disagrees plays at S-tier.
+  const computeGrade = ({ evPct, cv, poGp, projection, bookLine }) => {
+    const absEv   = Math.abs(evPct || 0);
+    const bookGap = bookLine > 0 ? Math.abs(projection - bookLine) / bookLine : 1;
+    const cvOk30  = cv != null && cv < 0.30;
+    const cvOk40  = cv != null && cv < 0.40;
+    const cvKnown = cv != null;
+    const sampleOk= (poGp || 0) >= 3;
+    const gapOk20 = bookGap < 0.20;
+    const gapOk30 = bookGap < 0.30;
+    if (absEv > 10 && cvOk30 && sampleOk && gapOk20)            return "LOCK";
+    if (absEv > 7  && (cvOk40 || !cvKnown) && sampleOk && gapOk30) return "ACTIONABLE";
+    if (absEv > 4  && gapOk30)                                   return "WATCH";
+    return "SKIP";
+  };
+
   const run = useCallback(async () => {
     if (!canRun) return;
     setErr(null);
@@ -1167,6 +1203,7 @@ export default function NBAPropsModel() {
             rest_days:      typeof restDays === "number" ? restDays : null,
             l5_avg:         proj.propRecent ?? null,           // client-computed L5 PO avg
             l5_min:         recentStats?.min ?? null,          // client-computed L5 PO minutes/game
+            l5_stat_values: extractL5StatValues(recentStats?._gameLog, prop.id),  // for variance band
             high_leverage:  /game\s*7|elimination|finals/i.test(game?.title || ""),
             // ── Residual calibration — historical projection/actual pairs from localStorage ──
             prior_residuals: getResiduals(player.key, prop.id),
@@ -1181,15 +1218,22 @@ export default function NBAPropsModel() {
             const sEdge   = +(sProj - l).toFixed(2);
             const sVerdict= Math.abs(sEdge) < 0.3 ? "push" : sEdge > 0 ? "over" : "under";
             const sEvPct  = l > 0 ? +((sProj - l) / l * 100).toFixed(2) : evPct;
-            const sAbsEv  = Math.abs(sEvPct);
-            const sGrade  = sAbsEv > 12 ? "S-TIER" : sAbsEv > 8 ? "A-TIER" : sAbsEv > 4 ? "B-TIER" : "NO BET";
+            // 4-tier grade: LOCK / ACTIONABLE / WATCH / SKIP — uses CV from confidence band
+            const sGrade  = computeGrade({
+              evPct:      sEvPct,
+              cv:         sd.confidence_band?.cv,
+              poGp:       sd.data_quality?.po_gp,
+              projection: sProj,
+              bookLine:   l,
+            });
             // Server drivers replace the client impactList in the terminal panel
             const serverDrivers = (sd.drivers || []).map(d => ({ name: d, impact: null }));
             setResult(prev => prev ? { ...prev,
               verdict: sVerdict, edge: sEdge, evPct: sEvPct, confGrade: sGrade,
               serverCorr: { projection: sProj, base: sd.base_projection,
                             evEdge: sd.ev_edge, breakdown: sd.breakdown,
-                            drivers: sd.drivers, dataQuality: sd.data_quality },
+                            drivers: sd.drivers, dataQuality: sd.data_quality,
+                            confidenceBand: sd.confidence_band, bookGap: sd.book_gap },
               impactList: serverDrivers.length > 0 ? serverDrivers : prev.impactList,
             } : prev);
           }
@@ -1518,7 +1562,13 @@ export default function NBAPropsModel() {
           const dname = dn(player.key);
           const ec = finalEc;
           const epct = Math.min(Math.abs(edge) / 5, 1);
-          const confGradeColor = confGrade === "S-TIER" ? "#a855f7" : confGrade === "A-TIER" ? "#10b981" : confGrade === "B-TIER" ? "#2563eb" : "#64748b";
+          const confGradeColor =
+            confGrade === "LOCK"       ? "#a855f7" :
+            confGrade === "ACTIONABLE" ? "#10b981" :
+            confGrade === "WATCH"      ? "#2563eb" :
+            confGrade === "SKIP"       ? "#64748b" :
+            // legacy S/A/B/NO BET fallback (client-only result before server replies)
+            confGrade === "S-TIER" ? "#a855f7" : confGrade === "A-TIER" ? "#10b981" : confGrade === "B-TIER" ? "#2563eb" : "#64748b";
           return (
             <div className="rp">
               <div className="rh">
@@ -1557,11 +1607,34 @@ export default function NBAPropsModel() {
                   <span style={{ color: "#c8d4e8" }}>{l} O/U  <span style={{ color: finalEdge > 0 ? "#10b981" : "#ef4444", marginLeft: 8 }}>{finalEdge > 0 ? "▲" : "▼"} {Math.abs(finalEdge)} {pr.label3} {finalVerdict.toUpperCase()}</span></span>
                   <span style={{ color: "#2a3550" }}>EV EDGE │</span>
                   <span style={{ color: finalEvPct > 0 ? "#10b981" : "#ef4444", fontWeight: 700 }}>{finalEvPct > 0 ? "+" : ""}{finalEvPct}%</span>
+                  {serverCorr?.confidenceBand && (() => {
+                    const cb = serverCorr.confidenceBand;
+                    const trustColor = cb.trust_score >= 70 ? "#10b981" : cb.trust_score >= 40 ? "#f59e0b" : "#ef4444";
+                    const straddles = l > 0 && cb.floor <= l && cb.ceiling >= l;
+                    return (
+                      <>
+                        <span style={{ color: "#2a3550" }}>BAND    │</span>
+                        <span style={{ color: "#c8d4e8" }}>
+                          {cb.floor} – {cb.ceiling} {pr.label3}
+                          <span style={{ color: trustColor, marginLeft: 10, fontWeight: 700 }}>TRUST {cb.trust_score}</span>
+                          <span style={{ color: "#2a3550", fontSize: 9, marginLeft: 8 }}>
+                            (CV {cb.cv} · σ {cb.std} · n {cb.n}){straddles ? " · ⚠ STRADDLES LINE" : ""}
+                          </span>
+                        </span>
+                      </>
+                    );
+                  })()}
                   <span style={{ color: "#2a3550" }}>GRADE   │</span>
                   <span>
                     <span style={{ background: confGradeColor, color: "#fff", padding: "2px 10px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: ".12em" }}>{confGrade}</span>
                     <span style={{ color: "#2a3550", fontSize: 9, marginLeft: 10 }}>
-                      {confGrade === "S-TIER" ? "EV > 12%" : confGrade === "A-TIER" ? "EV > 8%" : confGrade === "B-TIER" ? "EV > 4%" : "EV ≤ 4% — model edge insufficient"}
+                      {confGrade === "LOCK"       ? "EV>10% · CV<0.30 · sample≥3 · book gap<20%" :
+                       confGrade === "ACTIONABLE" ? "EV>7% · CV<0.40 · book gap<30%" :
+                       confGrade === "WATCH"      ? "EV>4% · weaker confidence" :
+                       confGrade === "SKIP"       ? "model trust insufficient — skip" :
+                       confGrade === "S-TIER"     ? "EV > 12%" :
+                       confGrade === "A-TIER"     ? "EV > 8%" :
+                       confGrade === "B-TIER"     ? "EV > 4%" : "EV ≤ 4% — model edge insufficient"}
                     </span>
                   </span>
                 </div>
