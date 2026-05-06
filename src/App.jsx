@@ -694,22 +694,66 @@ export default function NBAPropsModel() {
   // ── Residual learning — localStorage stores actual outcomes per player/prop ──
   // Enables the model to learn its systematic bias over time (no server needed).
   // Projection/actual pairs sent to /api/project → server applies Adjustment 14.
+  // ── Dedupe helper — collapses duplicate-date entries (keeps latest per date) ──
+  // Why: rapid double-clicks on SAVE or accidental re-logs were polluting the
+  // residual sample. Adj 14 (residual calibration) needs UNIQUE outcomes per game.
+  // Rule: one entry per (date) per (player, prop). Latest write wins.
+  const dedupeResidualsArray = useCallback((arr) => {
+    if (!Array.isArray(arr)) return [];
+    const byDate = new Map();
+    for (const e of arr) {
+      if (!e || typeof e !== "object") continue;
+      const d = e.date || "_undated_";
+      byDate.set(d, e);   // later iterations overwrite earlier — latest wins
+    }
+    return Array.from(byDate.values()).slice(-20);
+  }, []);
+
   const getResiduals = useCallback((playerKey, propId) => {
     try {
       const raw = localStorage.getItem(`res_${playerKey}_${propId}`);
-      return raw ? JSON.parse(raw) : [];
+      const arr = raw ? JSON.parse(raw) : [];
+      // Read-time dedupe ensures stale dupe-laden storage still passes clean data to server
+      return dedupeResidualsArray(arr);
     } catch { return []; }
-  }, []);
+  }, [dedupeResidualsArray]);
 
   const saveResidual = useCallback((playerKey, propId, projected, actual) => {
     try {
       const key  = `res_${playerKey}_${propId}`;
       const prev = (() => { try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch { return []; } })();
       const entry = { projected: +projected.toFixed(2), actual: +parseFloat(actual).toFixed(2), date: new Date().toISOString().slice(0, 10) };
-      const updated = [...prev, entry].slice(-20); // keep last 20 samples
+      // Dedupe on write — if user re-saves for same date, the new entry wins
+      const updated = dedupeResidualsArray([...prev, entry]);
       localStorage.setItem(key, JSON.stringify(updated));
     } catch {}
-  }, []);
+  }, [dedupeResidualsArray]);
+
+  // ── One-shot global cleanup — run over EVERY res_ key in localStorage ──
+  // Returns { keysScanned, dupesRemoved, totalBefore, totalAfter, perKey: [...] }
+  const cleanAllResiduals = useCallback(() => {
+    const report = { keysScanned: 0, dupesRemoved: 0, totalBefore: 0, totalAfter: 0, perKey: [] };
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || !k.startsWith("res_")) continue;
+        try {
+          const raw = JSON.parse(localStorage.getItem(k) || "[]");
+          if (!Array.isArray(raw)) continue;
+          const cleaned = dedupeResidualsArray(raw);
+          report.keysScanned += 1;
+          report.totalBefore += raw.length;
+          report.totalAfter  += cleaned.length;
+          if (cleaned.length !== raw.length) {
+            report.dupesRemoved += (raw.length - cleaned.length);
+            report.perKey.push({ key: k.replace("res_", ""), before: raw.length, after: cleaned.length });
+            localStorage.setItem(k, JSON.stringify(cleaned));
+          }
+        } catch {}
+      }
+    } catch {}
+    return report;
+  }, [dedupeResidualsArray]);
 
   // ── Fetch live schedule directly from ESPN (CORS-enabled, no server needed) ──
   // ESPN's public scoreboard API is CORS-open so we hit it from the browser.
@@ -1705,6 +1749,83 @@ export default function NBAPropsModel() {
                       </>
                     )}
                   </div>
+                );
+              })()}
+
+              {/* ── Residuals Manager — view, dedupe, clear logged outcomes ── */}
+              {(() => {
+                const residuals = getResiduals(player.key, pr.id);
+                if (residuals.length === 0) return null;
+                return (
+                  <details style={{ marginBottom: 12, background: "rgba(255,255,255,.025)", border: "1px solid rgba(255,255,255,.07)", borderRadius: 8, padding: "8px 14px" }}>
+                    <summary style={{ cursor: "pointer", fontFamily: "'Azeret Mono',monospace", fontSize: 10, color: "#94a3b8", letterSpacing: ".12em", listStyle: "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span>📋 RESIDUAL HISTORY ({residuals.length} sample{residuals.length !== 1 ? "s" : ""})</span>
+                      <span style={{ color: "#475569", fontSize: 9 }}>▼ EXPAND</span>
+                    </summary>
+                    <div style={{ marginTop: 12, fontSize: 11, fontFamily: "'Azeret Mono',monospace" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 12 }}>
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid rgba(255,255,255,.1)" }}>
+                            <th style={{ textAlign: "left",  padding: "6px 8px", color: "#64748b" }}>DATE</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px", color: "#64748b" }}>PROJECTED</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px", color: "#64748b" }}>ACTUAL</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px", color: "#64748b" }}>RESIDUAL</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px", color: "#64748b" }}>—</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {residuals.map((r, i) => {
+                            const resid = r.actual - r.projected;
+                            const pct = r.projected > 0 ? (resid / r.projected * 100) : 0;
+                            const color = Math.abs(pct) < 8 ? "#10b981" : Math.abs(pct) < 20 ? "#f59e0b" : "#ef4444";
+                            return (
+                              <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,.04)" }}>
+                                <td style={{ padding: "5px 8px", color: "#c8d4e8" }}>{r.date || "n/a"}</td>
+                                <td style={{ padding: "5px 8px", textAlign: "right", color: "#94a3b8" }}>{r.projected}</td>
+                                <td style={{ padding: "5px 8px", textAlign: "right", color: "#e8f0ff", fontWeight: 600 }}>{r.actual}</td>
+                                <td style={{ padding: "5px 8px", textAlign: "right", color }}>{resid >= 0 ? "+" : ""}{resid.toFixed(2)} ({pct >= 0 ? "+" : ""}{pct.toFixed(1)}%)</td>
+                                <td style={{ padding: "5px 8px", textAlign: "right" }}>
+                                  <button
+                                    onClick={() => {
+                                      const key = `res_${player.key}_${pr.id}`;
+                                      const filtered = residuals.filter((_, idx) => idx !== i);
+                                      try { localStorage.setItem(key, JSON.stringify(filtered)); } catch {}
+                                      // Force re-render by toggling a state — easiest is to reset actualLogged to undefined
+                                      setResult(prev => ({ ...prev, _residualVer: (prev?._residualVer || 0) + 1 }));
+                                    }}
+                                    style={{ background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.25)", color: "#ef4444", borderRadius: 4, padding: "2px 8px", fontSize: 9, fontFamily: "'Azeret Mono',monospace", cursor: "pointer" }}
+                                    title="Delete this entry"
+                                  >×</button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          onClick={() => {
+                            const report = cleanAllResiduals();
+                            alert(`🧹 Cleanup complete\n\nKeys scanned: ${report.keysScanned}\nDuplicates removed: ${report.dupesRemoved}\nTotal samples: ${report.totalBefore} → ${report.totalAfter}\n\n${report.perKey.length > 0 ? "Cleaned:\n" + report.perKey.slice(0, 10).map(p => `  ${p.key}: ${p.before} → ${p.after}`).join("\n") : "(no duplicates found)"}`);
+                            setResult(prev => ({ ...prev, _residualVer: (prev?._residualVer || 0) + 1 }));
+                          }}
+                          style={{ background: "rgba(245,158,11,.12)", border: "1px solid rgba(245,158,11,.3)", color: "#f59e0b", borderRadius: 6, padding: "7px 14px", fontSize: 10, fontFamily: "'Azeret Mono',monospace", cursor: "pointer", letterSpacing: ".1em", fontWeight: 700 }}
+                        >🧹 DEDUPE ALL PLAYERS</button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Clear ALL residuals for ${dn(player.key)} ${pr.label}?\n\nCurrent samples: ${residuals.length}\n\nThis cannot be undone.`)) {
+                              try { localStorage.removeItem(`res_${player.key}_${pr.id}`); } catch {}
+                              setResult(prev => ({ ...prev, _residualVer: (prev?._residualVer || 0) + 1, actualLogged: undefined }));
+                            }
+                          }}
+                          style={{ background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.25)", color: "#ef4444", borderRadius: 6, padding: "7px 14px", fontSize: 10, fontFamily: "'Azeret Mono',monospace", cursor: "pointer", letterSpacing: ".1em", fontWeight: 700 }}
+                        >🗑 CLEAR THIS PROP</button>
+                      </div>
+                      <div style={{ marginTop: 10, fontSize: 10, color: "#64748b", lineHeight: 1.5 }}>
+                        <strong style={{ color: "#94a3b8" }}>How it works:</strong> Adj 14 (Residual Calibration) uses these samples to detect systematic over/under-projection. Duplicates skew the bias signal — dedupe collapses entries with the same date (one game per day per prop). Latest write wins.
+                      </div>
+                    </div>
+                  </details>
                 );
               })()}
 
