@@ -840,7 +840,6 @@ export default function NBAPropsModel() {
   // then saves proj vs actual for pts + reb + ast simultaneously.
   const runAutoLog = useCallback(async () => {
     if (!game || !gid) return;
-    const today = new Date().toISOString().slice(0, 10);
     const LOG_PROPS = ["points", "rebounds", "assists"];
     const L5_KEY   = { points: "pts", rebounds: "reb", assists: "ast" };
     setAutoLogRunning(true);
@@ -858,7 +857,7 @@ export default function NBAPropsModel() {
       // 1. Fetch box score for today's game
       let box = null;
       try {
-        const r = await fetch(`${API_BASE}/box-results/${pid}/${today}`);
+        const r = await fetch(`${API_BASE}/box-results/${pid}`);
         const d = await r.json();
         if (d.success && d.game) box = d.game;
       } catch {}
