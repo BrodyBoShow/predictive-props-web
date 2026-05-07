@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, ReferenceLine, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { TEAM_DATA, LEAGUE_AVG_dEFF, LEAGUE_AVG_PACE, LEAGUE_AVG_AST_CONV } from './data/TEAM_DATA.js';
 import { PLAYER_DB } from './data/PLAYER_DB.js';
@@ -297,6 +297,8 @@ export default function NBAPropsModel() {
   const [result, setResult] = useState(null);
   const [err, setErr] = useState(null);
   const [actualInput, setActualInput] = useState("");
+  const [fetchedBox, setFetchedBox] = useState(null);
+  const [fetchingBox, setFetchingBox] = useState(false);
   const [showMath, setShowMath] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [showBulkLog, setShowBulkLog] = useState(false);
@@ -350,6 +352,29 @@ export default function NBAPropsModel() {
       out:      Array.isArray(outPlayers) ? outPlayers.slice(0, 5).map(p => p.name || p).filter(Boolean) : [],
     };
   }, []);
+
+  // ── Auto-fetch box score from server → pre-fill "log actual" field ──────────
+  const BOX_STAT_KEY = { points: "pts", rebounds: "reb", assists: "ast",
+                         steals: "stl", blocks: "blk", turnovers: "tov" };
+  const handleFetchBox = useCallback(async (propId) => {
+    const pid = pkey ? effectiveDB[pkey]?.pid : null;
+    if (!pid) return;
+    setFetchingBox(true);
+    setFetchedBox(null);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const res = await fetch(`${API_BASE}/box-results/${pid}/${today}`);
+      const data = await res.json();
+      if (data.success && data.game) {
+        setFetchedBox(data.game);
+        const statKey = BOX_STAT_KEY[propId];
+        if (statKey && data.game[statKey] !== undefined) {
+          setActualInput(String(data.game[statKey]));
+        }
+      }
+    } catch {}
+    setFetchingBox(false);
+  }, [pkey, effectiveDB]);
 
   const saveResidual = useCallback((playerKey, propId, projected, actual, ctx = null) => {
     try {
@@ -1370,26 +1395,41 @@ export default function NBAPropsModel() {
                           type="number" step="0.5" min="0"
                           placeholder={`Log actual ${pr.label3}...`}
                           value={actualInput}
-                          onChange={e => setActualInput(e.target.value)}
+                          onChange={e => { setActualInput(e.target.value); setFetchedBox(null); }}
                           style={{ width: 170, padding: "7px 12px", background: "rgba(255,255,255,.04)",
                             border: "1px solid rgba(255,255,255,.1)", borderRadius: 6, color: "#c8d4e8",
                             fontSize: 13, fontFamily: "'Azeret Mono',monospace", outline: "none" }}
                         />
+                        {/* Auto-fill from NBA box score */}
+                        <button
+                          onClick={() => handleFetchBox(pr.id)}
+                          disabled={fetchingBox || !effectiveDB[pkey]?.pid}
+                          title="Auto-fill from NBA box score"
+                          style={{ padding: "7px 10px", background: fetchedBox ? "rgba(99,102,241,.18)" : "rgba(99,102,241,.08)",
+                            border: `1px solid ${fetchedBox ? "rgba(99,102,241,.5)" : "rgba(99,102,241,.2)"}`, borderRadius: 6, color: "#818cf8",
+                            cursor: "pointer", fontSize: 10, fontFamily: "'Azeret Mono',monospace", letterSpacing: ".1em",
+                            opacity: effectiveDB[pkey]?.pid ? 1 : 0.4 }}>
+                          {fetchingBox ? "…" : fetchedBox ? "✓ BOX" : "📊 FETCH"}
+                        </button>
                         <button
                           disabled={!actualInput || isNaN(parseFloat(actualInput))}
                           onClick={() => {
                             const actual = parseFloat(actualInput);
                             if (!isNaN(actual) && actual >= 0) {
                               const proj2 = serverCorr?.projection ?? proj.adjustedProjection;
-                              const ctx = buildResidualCtx({
-                                isHome: result.isHome,
-                                gameTitle: g?.title,
-                                restDays: result.restDays,
-                                outPlayers: injuryContext?.outPlayers || [],
-                              });
+                              const ctx = {
+                                ...buildResidualCtx({
+                                  isHome: result.isHome,
+                                  gameTitle: g?.title,
+                                  restDays: result.restDays,
+                                  outPlayers: injuryContext?.outPlayers || [],
+                                }),
+                                ...(fetchedBox ? { fullStats: fetchedBox } : {}),
+                              };
                               saveResidual(player.key, pr.id, proj2, actual, ctx);
                               setResult(prev => ({ ...prev, actualLogged: actual }));
                               setActualInput("");
+                              setFetchedBox(null);
                             }
                           }}
                           style={{ padding: "7px 14px", background: "rgba(16,185,129,.12)",
@@ -1405,6 +1445,42 @@ export default function NBAPropsModel() {
                         )}
                       </>
                     )}
+                  </div>
+                );
+              })()}
+
+              {/* ── Fetched box score preview ──────────────────────────────────── */}
+              {fetchedBox && (() => {
+                const b = fetchedBox;
+                const fgStr = b.fga > 0 ? `${b.fgm}/${b.fga} (${b.fg_pct}%)` : "—";
+                const fg3Str = b.fg3a > 0 ? `${b.fg3m}/${b.fg3a} (${b.fg3_pct}%)` : "—";
+                const ftStr  = b.fta > 0  ? `${b.ftm}/${b.fta} (${b.ft_pct}%)` : "—";
+                return (
+                  <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(99,102,241,.06)",
+                    border: "1px solid rgba(99,102,241,.2)", borderRadius: 8,
+                    fontFamily: "'Azeret Mono',monospace", fontSize: 10 }}>
+                    <div style={{ color: "#818cf8", marginBottom: 6, letterSpacing: ".1em", fontSize: 9 }}>
+                      📊 BOX SCORE · {b.matchup} · {b.date} · {b.wl} · {b.min}min · {b.pm >= 0 ? "+" : ""}{b.pm} PM
+                    </div>
+                    <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                      {[
+                        ["PTS", b.pts], ["REB", b.reb, "(" + b.oreb + "/" + b.dreb + ")"], ["AST", b.ast],
+                        ["STL", b.stl], ["BLK", b.blk], ["TOV", b.tov],
+                      ].map(([label, val, sub]) => (
+                        <div key={label} style={{ textAlign: "center" }}>
+                          <div style={{ color: "#c8d4e8", fontWeight: 700, fontSize: 13 }}>{val}</div>
+                          <div style={{ color: "#475569", fontSize: 8 }}>{label}{sub ? " " + sub : ""}</div>
+                        </div>
+                      ))}
+                      <div style={{ borderLeft: "1px solid rgba(255,255,255,.07)", paddingLeft: 16, display: "flex", gap: 16 }}>
+                        {[["FG", fgStr], ["3P", fg3Str], ["FT", ftStr]].map(([label, val]) => (
+                          <div key={label} style={{ textAlign: "center" }}>
+                            <div style={{ color: "#94a3b8", fontWeight: 600, fontSize: 11 }}>{val}</div>
+                            <div style={{ color: "#475569", fontSize: 8 }}>{label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 );
               })()}
@@ -1448,11 +1524,13 @@ export default function NBAPropsModel() {
                                 ctxTags.push({ t: `⚡${r.ctx.out.length} OUT`, c: "#10b981" });
                               }
                             }
+                            const fs = r.ctx?.fullStats;
                             return (
-                              <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,.04)" }}>
+                              <React.Fragment key={i}>
+                              <tr style={{ borderBottom: fs ? "none" : "1px solid rgba(255,255,255,.04)" }}>
                                 <td style={{ padding: "5px 8px", color: "#c8d4e8" }}>{r.date || "n/a"}</td>
                                 <td style={{ padding: "5px 8px" }}>
-                                  {ctxTags.length === 0 ? (
+                                  {ctxTags.length === 0 && !fs ? (
                                     <span style={{ color: "#475569", fontSize: 9 }}>—</span>
                                   ) : (
                                     <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
@@ -1465,6 +1543,7 @@ export default function NBAPropsModel() {
                                           fontWeight: 700, letterSpacing: ".05em",
                                         }}>{tag.t}</span>
                                       ))}
+                                      {fs && <span style={{ background: "rgba(99,102,241,.12)", color: "#818cf8", border: "1px solid rgba(99,102,241,.3)", fontSize: 8.5, padding: "1px 5px", borderRadius: 3, fontWeight: 700 }}>📊</span>}
                                     </div>
                                   )}
                                 </td>
@@ -1477,7 +1556,6 @@ export default function NBAPropsModel() {
                                       const key = `res_${player.key}_${pr.id}`;
                                       const filtered = residuals.filter((_, idx) => idx !== i);
                                       try { localStorage.setItem(key, JSON.stringify(filtered)); } catch {}
-                                      // Force re-render by toggling a state — easiest is to reset actualLogged to undefined
                                       setResult(prev => ({ ...prev, _residualVer: (prev?._residualVer || 0) + 1 }));
                                     }}
                                     style={{ background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.25)", color: "#ef4444", borderRadius: 4, padding: "2px 8px", fontSize: 9, fontFamily: "'Azeret Mono',monospace", cursor: "pointer" }}
@@ -1485,6 +1563,22 @@ export default function NBAPropsModel() {
                                   >×</button>
                                 </td>
                               </tr>
+                              {fs && (
+                                <tr style={{ borderBottom: "1px solid rgba(255,255,255,.04)" }}>
+                                  <td colSpan={6} style={{ padding: "3px 8px 7px 8px" }}>
+                                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontFamily: "'Azeret Mono',monospace", fontSize: 8.5, color: "#475569" }}>
+                                      <span style={{ color: "#6366f1" }}>{fs.matchup} {fs.wl}</span>
+                                      <span>{fs.min}min</span>
+                                      <span style={{ color: "#c8d4e8" }}>{fs.pts}pts {fs.reb}reb {fs.ast}ast {fs.stl}stl {fs.blk}blk {fs.tov}tov</span>
+                                      {fs.fga > 0 && <span>FG {fs.fgm}/{fs.fga} ({fs.fg_pct}%)</span>}
+                                      {fs.fg3a > 0 && <span>3P {fs.fg3m}/{fs.fg3a} ({fs.fg3_pct}%)</span>}
+                                      {fs.fta > 0  && <span>FT {fs.ftm}/{fs.fta} ({fs.ft_pct}%)</span>}
+                                      <span style={{ color: fs.pm >= 0 ? "#10b981" : "#ef4444" }}>{fs.pm >= 0 ? "+" : ""}{fs.pm} PM</span>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                              </React.Fragment>
                             );
                           })}
                         </tbody>
