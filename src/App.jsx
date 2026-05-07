@@ -353,29 +353,6 @@ export default function NBAPropsModel() {
     };
   }, []);
 
-  // ── Auto-fetch box score from server → pre-fill "log actual" field ──────────
-  const BOX_STAT_KEY = { points: "pts", rebounds: "reb", assists: "ast",
-                         steals: "stl", blocks: "blk", turnovers: "tov" };
-  const handleFetchBox = useCallback(async (propId) => {
-    const pid = pkey ? effectiveDB[pkey]?.pid : null;
-    if (!pid) return;
-    setFetchingBox(true);
-    setFetchedBox(null);
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-      const res = await fetch(`${API_BASE}/box-results/${pid}/${today}`);
-      const data = await res.json();
-      if (data.success && data.game) {
-        setFetchedBox(data.game);
-        const statKey = BOX_STAT_KEY[propId];
-        if (statKey && data.game[statKey] !== undefined) {
-          setActualInput(String(data.game[statKey]));
-        }
-      }
-    } catch {}
-    setFetchingBox(false);
-  }, [pkey, effectiveDB]);
-
   const saveResidual = useCallback((playerKey, propId, projected, actual, ctx = null) => {
     try {
       const key  = `res_${playerKey}_${propId}`;
@@ -722,6 +699,30 @@ export default function NBAPropsModel() {
     if (!liveTeamData) return TEAM_DATA;
     return { ...TEAM_DATA, ...liveTeamData }; // live wins for any team it returns
   }, [liveTeamData]);
+
+  // ── Auto-fetch box score from server → pre-fill "log actual" field ──────────
+  // Declared here so effectiveDB is already in scope (avoids TDZ crash)
+  const BOX_STAT_KEY = { points: "pts", rebounds: "reb", assists: "ast",
+                         steals: "stl", blocks: "blk", turnovers: "tov" };
+  const handleFetchBox = useCallback(async (propId) => {
+    const pid = pkey ? effectiveDB[pkey]?.pid : null;
+    if (!pid) return;
+    setFetchingBox(true);
+    setFetchedBox(null);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const res = await fetch(`${API_BASE}/box-results/${pid}/${today}`);
+      const data = await res.json();
+      if (data.success && data.game) {
+        setFetchedBox(data.game);
+        const statKey = BOX_STAT_KEY[propId];
+        if (statKey && data.game[statKey] !== undefined) {
+          setActualInput(String(data.game[statKey]));
+        }
+      }
+    } catch {}
+    setFetchingBox(false);
+  }, [pkey, effectiveDB]);
 
   // Fetch last-5 game logs + vs-opponent splits — placed here so effectiveDB is already initialized
   useEffect(() => {
