@@ -311,6 +311,10 @@ export default function NBAPropsModel() {
   const [bulkRunning, setBulkRunning] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
   const [bulkProps, setBulkProps] = useState(["points", "rebounds", "assists"]);
+  // ── Auto residual logger ──
+  const [autoLogRunning, setAutoLogRunning] = useState(false);
+  const [autoLogProgress, setAutoLogProgress] = useState({ done: 0, total: 0 });
+  const [autoLogResult, setAutoLogResult] = useState(null);   // { logged, skipped, players }
   const ref = useRef(null);
 
   // ── Residual learning — localStorage stores actual outcomes per player/prop ──
@@ -830,6 +834,104 @@ export default function NBAPropsModel() {
     setBulkRunning(false);
   }, [game, bulkRosterPlayers, bulkLines, bulkProps, effectiveDB, getResiduals]);
 
+  // ── Auto residual logger — no lines needed, proj vs box-score actual ─────────
+  // Runs after a game completes. For each roster player: fetches box score,
+  // runs /api/project (using l5avg as dummy line so the projection is unaffected),
+  // then saves proj vs actual for pts + reb + ast simultaneously.
+  const runAutoLog = useCallback(async () => {
+    if (!game || !gid) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const LOG_PROPS = ["points", "rebounds", "assists"];
+    const L5_KEY   = { points: "pts", rebounds: "reb", assists: "ast" };
+    setAutoLogRunning(true);
+    setAutoLogResult(null);
+    setAutoLogProgress({ done: 0, total: bulkRosterPlayers.length });
+
+    const recentCache = {};
+    let logged = 0, skipped = 0;
+    const playerSummary = [];
+
+    for (const player of bulkRosterPlayers) {
+      const pid = effectiveDB[player.name]?.pid;
+      if (!pid) { setAutoLogProgress(p => ({ ...p, done: p.done + 1 })); skipped++; continue; }
+
+      // 1. Fetch box score for today's game
+      let box = null;
+      try {
+        const r = await fetch(`${API_BASE}/box-results/${pid}/${today}`);
+        const d = await r.json();
+        if (d.success && d.game) box = d.game;
+      } catch {}
+      if (!box) { setAutoLogProgress(p => ({ ...p, done: p.done + 1 })); skipped++; continue; }
+
+      // 2. Fetch recent for l5 data (cached server-side)
+      if (!recentCache[player.name]) {
+        try {
+          const r = await fetch(`${API_BASE}/recent/${pid}`);
+          recentCache[player.name] = await r.json();
+        } catch { recentCache[player.name] = null; }
+      }
+      const recent = recentCache[player.name];
+      const gameLog = recent?.gameLog || [];
+      const opp = player.team === game.home ? game.away : game.home;
+      const playerLogged = [];
+
+      // 3. Project + log each prop
+      for (const propId of LOG_PROPS) {
+        const actualKey = L5_KEY[propId];
+        const actual = box[actualKey];
+        if (actual === undefined || actual === null) continue;
+
+        const l5vals = gameLog.map(g => g[actualKey] || 0);
+        const l5avg  = l5vals.length
+          ? +(l5vals.reduce((a, b) => a + b, 0) / l5vals.length).toFixed(2)
+          : actual;  // fallback: use actual itself (residual = 0, harmless)
+
+        const priorResiduals = getResiduals(player.name, propId)
+          .map(r => ({ projected: r.projected, actual: r.actual, ctx: r.ctx || null }));
+
+        try {
+          const resp = await fetch(`${API_BASE}/project`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              player_name: player.name, prop_type: propId,
+              book_line: l5avg,          // dummy — doesn't affect projection value
+              opponent_abbr: opp, team_abbr: player.team, is_home: player.isHome,
+              rest_days: null,
+              l5_avg: l5avg, l5_min: recent?.recent?.min || null, l5_stat_values: l5vals,
+              high_leverage: /game\s*7|elimination|finals/i.test(game.title || ""),
+              prior_residuals: priorResiduals,
+            }),
+          });
+          const data = await resp.json();
+          if (data.success) {
+            const proj = data.correlated_projection;
+            const ctx = {
+              home: player.isHome, po: true,
+              b2b: false,
+              leverage: /game\s*7|elimination|finals/i.test(game.title || ""),
+              out: [],
+              fullStats: box,
+            };
+            saveResidual(player.name, propId, proj, actual, ctx);
+            logged++;
+            playerLogged.push(`${propId[0].toUpperCase()}:${actual}`);
+          }
+        } catch {}
+        await new Promise(r => setTimeout(r, 80));
+      }
+
+      if (playerLogged.length > 0) {
+        playerSummary.push({ name: player.name, team: player.team, logged: playerLogged });
+      }
+      setAutoLogProgress(p => ({ ...p, done: p.done + 1 }));
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    setAutoLogResult({ logged, skipped, players: playerSummary });
+    setAutoLogRunning(false);
+  }, [game, gid, bulkRosterPlayers, effectiveDB, getResiduals, saveResidual]);
+
   // Merge live injury report (API) over static INJURIES baseline — live takes priority
   const getInjury = useCallback((playerKey) => {
     const k = (playerKey || "").toLowerCase();
@@ -1290,16 +1392,57 @@ export default function NBAPropsModel() {
               📋 BULK LOG PAST RESULTS
             </button>
             {game && (
-              <button onClick={() => { setShowBulk(v => !v); setBulkProjResults([]); setBulkProgress({ done:0,total:0 }); }}
-                style={{ background: showBulk ? "rgba(99,102,241,.18)" : "rgba(99,102,241,.08)",
-                  border: `1px solid ${showBulk ? "rgba(99,102,241,.5)" : "rgba(99,102,241,.2)"}`,
-                  borderRadius:8, color:"#818cf8", cursor:"pointer", fontSize:9,
-                  fontFamily:"'Azeret Mono',monospace", letterSpacing:".14em", padding:"6px 12px" }}>
-                {showBulk ? "✕ CLOSE BULK" : "📊 BULK PROJECT"}
-              </button>
+              <div style={{ display:"flex", gap:6 }}>
+                <button onClick={() => { setShowBulk(v => !v); setBulkProjResults([]); setBulkProgress({ done:0,total:0 }); }}
+                  style={{ background: showBulk ? "rgba(99,102,241,.18)" : "rgba(99,102,241,.08)",
+                    border: `1px solid ${showBulk ? "rgba(99,102,241,.5)" : "rgba(99,102,241,.2)"}`,
+                    borderRadius:8, color:"#818cf8", cursor:"pointer", fontSize:9,
+                    fontFamily:"'Azeret Mono',monospace", letterSpacing:".14em", padding:"6px 12px" }}>
+                  {showBulk ? "✕ CLOSE BULK" : "📊 BULK PROJECT"}
+                </button>
+                <button
+                  onClick={() => { setAutoLogResult(null); runAutoLog(); }}
+                  disabled={autoLogRunning}
+                  title="Auto-log pts/reb/ast residuals for all players from tonight's box scores"
+                  style={{ background:"rgba(16,185,129,.08)", border:"1px solid rgba(16,185,129,.2)",
+                    borderRadius:8, color:"#10b981", cursor: autoLogRunning ? "not-allowed" : "pointer",
+                    fontSize:9, fontFamily:"'Azeret Mono',monospace", letterSpacing:".14em", padding:"6px 12px",
+                    opacity: autoLogRunning ? 0.6 : 1 }}>
+                  {autoLogRunning
+                    ? `📝 LOGGING ${autoLogProgress.done}/${autoLogProgress.total}…`
+                    : "📝 AUTO-LOG RESIDUALS"}
+                </button>
+              </div>
             )}
           </div>
         </div>
+
+        {/* ── Auto-log result summary ───────────────────────────────────────── */}
+        {autoLogResult && (
+          <div className="sec">
+            <div className="card" style={{ padding:"12px 16px", fontFamily:"'Azeret Mono',monospace" }}>
+              <div style={{ fontSize:10, color:"#10b981", marginBottom:8, letterSpacing:".1em" }}>
+                ✓ AUTO-LOG COMPLETE — {autoLogResult.logged} residuals saved · {autoLogResult.skipped} players skipped (no box score yet)
+              </div>
+              {autoLogResult.players.length > 0 && (
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                  {autoLogResult.players.map((p, i) => (
+                    <span key={i} style={{ background:"rgba(16,185,129,.08)", border:"1px solid rgba(16,185,129,.15)",
+                      borderRadius:4, padding:"2px 8px", fontSize:9, color:"#64748b" }}>
+                      <span style={{ color:"#c8d4e8" }}>{p.name.split(" ").map(w=>w[0].toUpperCase()+w.slice(1)).join(" ")}</span>
+                      {" "}{p.logged.join(" ")}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <button onClick={() => setAutoLogResult(null)}
+                style={{ marginTop:8, background:"none", border:"none", color:"#334155",
+                  cursor:"pointer", fontSize:9, fontFamily:"'Azeret Mono',monospace", padding:0 }}>
+                dismiss
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── Bulk Projection Panel ──────────────────────────────────────────── */}
         {showBulk && game && (() => {
