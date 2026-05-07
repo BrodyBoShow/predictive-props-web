@@ -731,94 +731,6 @@ export default function NBAPropsModel() {
     setFetchingBox(false);
   }, [pkey, effectiveDB]);
 
-  // ── Bulk projection roster — away players first, then home ──────────────────
-  const bulkRosterPlayers = useMemo(() => {
-    if (!game || !gid) return [];
-    const awayList = (activeRosters[gid]?.[game.away] || []).map(n => ({ name: n, team: game.away, isHome: false }));
-    const homeList = (activeRosters[gid]?.[game.home] || []).map(n => ({ name: n, team: game.home, isHome: true }));
-    return [...awayList, ...homeList];
-  }, [game, gid, activeRosters]);
-
-  // ── Run all projections for lines the user filled in ─────────────────────────
-  const runBulkProjections = useCallback(async () => {
-    if (!game) return;
-    const L5_KEY = { points: "pts", rebounds: "reb", assists: "ast", steals: "stl", blocks: "blk", turnovers: "tov" };
-    // Build task list: only rows where the user entered a valid line
-    const tasks = [];
-    for (const player of bulkRosterPlayers) {
-      const propsForPlayer = bulkLines[player.name] || {};
-      for (const propId of bulkProps) {
-        const lineStr = propsForPlayer[propId];
-        const line = parseFloat(lineStr);
-        if (!lineStr || isNaN(line) || line <= 0) continue;
-        tasks.push({ ...player, propId, line });
-      }
-    }
-    if (tasks.length === 0) return;
-    setBulkRunning(true);
-    setBulkProjResults([]);
-    setBulkProgress({ done: 0, total: tasks.length });
-
-    // Cache recent data per player (avoid double-fetching)
-    const recentCache = {};
-    const results = [];
-
-    for (const task of tasks) {
-      const dbEntry = effectiveDB[task.name];
-      const pid = dbEntry?.pid;
-      if (!pid) { setBulkProgress(p => ({ ...p, done: p.done + 1 })); continue; }
-
-      if (!recentCache[task.name]) {
-        try {
-          const r = await fetch(`${API_BASE}/recent/${pid}`);
-          recentCache[task.name] = await r.json();
-        } catch { recentCache[task.name] = null; }
-      }
-      const recent = recentCache[task.name];
-      const gameLog = recent?.gameLog || [];
-      const l5Key = L5_KEY[task.propId];
-      const l5vals = l5Key ? gameLog.map(g => g[l5Key] || 0) : [];
-      const l5avg = l5vals.length ? +(l5vals.reduce((a, b) => a + b, 0) / l5vals.length).toFixed(2) : null;
-      const opp = task.team === game.home ? game.away : game.home;
-      const priorResiduals = getResiduals(task.name, task.propId).map(r => ({ projected: r.projected, actual: r.actual, ctx: r.ctx || null }));
-
-      try {
-        const resp = await fetch(`${API_BASE}/project`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            player_name: task.name, prop_type: task.propId, book_line: task.line,
-            opponent_abbr: opp, team_abbr: task.team, is_home: task.isHome,
-            rest_days: null,
-            l5_avg: l5avg, l5_min: recent?.recent?.min || null, l5_stat_values: l5vals,
-            high_leverage: /game\s*7|elimination|finals/i.test(game.title || ""),
-            prior_residuals: priorResiduals,
-          }),
-        });
-        const data = await resp.json();
-        if (data.success) {
-          const proj = data.correlated_projection;
-          results.push({
-            name: task.name, team: task.team, propId: task.propId, line: task.line,
-            proj, base: data.base_projection,
-            ev: +((proj / task.line - 1) * 100).toFixed(1),
-            cv: data.confidence_band?.cv ?? null,
-            grade: data.grade || "SKIP",
-            lean: proj > task.line ? "OVER" : "UNDER",
-            drivers: data.drivers || [],
-          });
-        }
-      } catch {}
-      setBulkProgress(p => ({ ...p, done: p.done + 1 }));
-      await new Promise(r => setTimeout(r, 120));
-    }
-
-    const gradeOrder = { LOCK: 0, ACTIONABLE: 1, WATCH: 2, SKIP: 3 };
-    results.sort((a, b) => (gradeOrder[a.grade] - gradeOrder[b.grade]) || (Math.abs(b.ev) - Math.abs(a.ev)));
-    setBulkProjResults(results);
-    setBulkRunning(false);
-  }, [game, bulkRosterPlayers, bulkLines, bulkProps, effectiveDB, getResiduals]);
-
   // Fetch last-5 game logs + vs-opponent splits — placed here so effectiveDB is already initialized
   useEffect(() => {
     setRecentStats(null);
@@ -841,6 +753,82 @@ export default function NBAPropsModel() {
   const game = gid ? activeRosters[gid] : null;
   const db = pkey ? lookupPlayer(pkey, effectiveDB) : null;
   const canRun = !!game && !!db && !!prop && !!line && !isNaN(parseFloat(line));
+
+  // ── Bulk projection helpers — declared after game/effectiveDB to avoid TDZ ──
+  const bulkRosterPlayers = useMemo(() => {
+    if (!game || !gid) return [];
+    const awayList = (activeRosters[gid]?.[game.away] || []).map(n => ({ name: n, team: game.away, isHome: false }));
+    const homeList = (activeRosters[gid]?.[game.home] || []).map(n => ({ name: n, team: game.home, isHome: true }));
+    return [...awayList, ...homeList];
+  }, [game, gid, activeRosters]);
+
+  const runBulkProjections = useCallback(async () => {
+    if (!game) return;
+    const L5_KEY = { points: "pts", rebounds: "reb", assists: "ast", steals: "stl", blocks: "blk", turnovers: "tov" };
+    const tasks = [];
+    for (const player of bulkRosterPlayers) {
+      const propsForPlayer = bulkLines[player.name] || {};
+      for (const propId of bulkProps) {
+        const lineStr = propsForPlayer[propId];
+        const line = parseFloat(lineStr);
+        if (!lineStr || isNaN(line) || line <= 0) continue;
+        tasks.push({ ...player, propId, line });
+      }
+    }
+    if (tasks.length === 0) return;
+    setBulkRunning(true);
+    setBulkProjResults([]);
+    setBulkProgress({ done: 0, total: tasks.length });
+    const recentCache = {};
+    const results = [];
+    for (const task of tasks) {
+      const pid = effectiveDB[task.name]?.pid;
+      if (!pid) { setBulkProgress(p => ({ ...p, done: p.done + 1 })); continue; }
+      if (!recentCache[task.name]) {
+        try {
+          const r = await fetch(`${API_BASE}/recent/${pid}`);
+          recentCache[task.name] = await r.json();
+        } catch { recentCache[task.name] = null; }
+      }
+      const recent = recentCache[task.name];
+      const gameLog = recent?.gameLog || [];
+      const l5Key = L5_KEY[task.propId];
+      const l5vals = l5Key ? gameLog.map(g => g[l5Key] || 0) : [];
+      const l5avg = l5vals.length ? +(l5vals.reduce((a, b) => a + b, 0) / l5vals.length).toFixed(2) : null;
+      const opp = task.team === game.home ? game.away : game.home;
+      const priorResiduals = getResiduals(task.name, task.propId).map(r => ({ projected: r.projected, actual: r.actual, ctx: r.ctx || null }));
+      try {
+        const resp = await fetch(`${API_BASE}/project`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            player_name: task.name, prop_type: task.propId, book_line: task.line,
+            opponent_abbr: opp, team_abbr: task.team, is_home: task.isHome, rest_days: null,
+            l5_avg: l5avg, l5_min: recent?.recent?.min || null, l5_stat_values: l5vals,
+            high_leverage: /game\s*7|elimination|finals/i.test(game.title || ""),
+            prior_residuals: priorResiduals,
+          }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+          const proj = data.correlated_projection;
+          results.push({
+            name: task.name, team: task.team, propId: task.propId, line: task.line,
+            proj, base: data.base_projection,
+            ev: +((proj / task.line - 1) * 100).toFixed(1),
+            cv: data.confidence_band?.cv ?? null,
+            grade: data.grade || "SKIP",
+            lean: proj > task.line ? "OVER" : "UNDER",
+          });
+        }
+      } catch {}
+      setBulkProgress(p => ({ ...p, done: p.done + 1 }));
+      await new Promise(r => setTimeout(r, 120));
+    }
+    const gradeOrder = { LOCK: 0, ACTIONABLE: 1, WATCH: 2, SKIP: 3 };
+    results.sort((a, b) => (gradeOrder[a.grade] - gradeOrder[b.grade]) || (Math.abs(b.ev) - Math.abs(a.ev)));
+    setBulkProjResults(results);
+    setBulkRunning(false);
+  }, [game, bulkRosterPlayers, bulkLines, bulkProps, effectiveDB, getResiduals]);
 
   // Merge live injury report (API) over static INJURIES baseline — live takes priority
   const getInjury = useCallback((playerKey) => {
