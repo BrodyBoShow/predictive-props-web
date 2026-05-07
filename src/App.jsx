@@ -720,11 +720,36 @@ export default function NBAPropsModel() {
     } catch { return []; }
   }, [dedupeResidualsArray]);
 
-  const saveResidual = useCallback((playerKey, propId, projected, actual) => {
+  // Context capture — what circumstances was this projection made under?
+  // Used by server's Adj 14 to apply bucket-aware calibration:
+  //   • home/away  — does the model over-project on the road?
+  //   • po/rs      — does playoff intensity throw off projections?
+  //   • b2b        — back-to-back fatigue
+  //   • leverage   — game 7s, eliminations
+  //   • out        — list of OUT teammates (cascade cases)
+  // Stored on each residual entry so future projections can match similar contexts.
+  const buildResidualCtx = useCallback((info) => {
+    if (!info) return null;
+    const { isHome, gameTitle, restDays, outPlayers } = info;
+    return {
+      home:     isHome === true,
+      po:       /game|playoff|round|finals|elimination|conference/i.test(gameTitle || ""),
+      b2b:      restDays === 0,
+      leverage: /game\s*7|elimination|finals/i.test(gameTitle || ""),
+      out:      Array.isArray(outPlayers) ? outPlayers.slice(0, 5).map(p => p.name || p).filter(Boolean) : [],
+    };
+  }, []);
+
+  const saveResidual = useCallback((playerKey, propId, projected, actual, ctx = null) => {
     try {
       const key  = `res_${playerKey}_${propId}`;
       const prev = (() => { try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch { return []; } })();
-      const entry = { projected: +projected.toFixed(2), actual: +parseFloat(actual).toFixed(2), date: new Date().toISOString().slice(0, 10) };
+      const entry = {
+        projected: +projected.toFixed(2),
+        actual:    +parseFloat(actual).toFixed(2),
+        date:      new Date().toISOString().slice(0, 10),
+        ...(ctx ? { ctx } : {}),
+      };
       // Dedupe on write — if user re-saves for same date, the new entry wins
       const updated = dedupeResidualsArray([...prev, entry]);
       localStorage.setItem(key, JSON.stringify(updated));
@@ -1266,6 +1291,11 @@ export default function NBAPropsModel() {
             high_leverage:  /game\s*7|elimination|finals/i.test(game?.title || ""),
             // ── Residual calibration — historical projection/actual pairs from localStorage ──
             prior_residuals: getResiduals(player.key, prop.id),
+            // ── Current game context for bucket-aware Adj 14 (server matches similar samples) ──
+            current_ctx: buildResidualCtx({
+              isHome, gameTitle: game?.title, restDays,
+              outPlayers: injuryContext?.outPlayers || [],
+            }),
           }),
         });
         clearTimeout(tid);
@@ -1301,7 +1331,7 @@ export default function NBAPropsModel() {
         }
       } catch { /* server layer failed — keep client result unchanged */ }
     }
-  }, [canRun, game, db, prop, line, pkey, effectiveTeamData, recentStats, vsOpponentStats, homeAwaySplits, teamDefense, scoringBreakdown, clutchStats, injuryContext, nbaApiStatus, getResiduals]);
+  }, [canRun, game, db, prop, line, pkey, effectiveTeamData, recentStats, vsOpponentStats, homeAwaySplits, teamDefense, scoringBreakdown, clutchStats, injuryContext, nbaApiStatus, getResiduals, buildResidualCtx]);
 
   const exportToExcel = useCallback(() => {
     if (!result) return;
@@ -1733,7 +1763,13 @@ export default function NBAPropsModel() {
                             const actual = parseFloat(actualInput);
                             if (!isNaN(actual) && actual >= 0) {
                               const proj2 = serverCorr?.projection ?? proj.adjustedProjection;
-                              saveResidual(player.key, pr.id, proj2, actual);
+                              const ctx = buildResidualCtx({
+                                isHome: result.isHome,
+                                gameTitle: g?.title,
+                                restDays: result.restDays,
+                                outPlayers: injuryContext?.outPlayers || [],
+                              });
+                              saveResidual(player.key, pr.id, proj2, actual, ctx);
                               setResult(prev => ({ ...prev, actualLogged: actual }));
                               setActualInput("");
                             }
@@ -1770,6 +1806,7 @@ export default function NBAPropsModel() {
                         <thead>
                           <tr style={{ borderBottom: "1px solid rgba(255,255,255,.1)" }}>
                             <th style={{ textAlign: "left",  padding: "6px 8px", color: "#64748b" }}>DATE</th>
+                            <th style={{ textAlign: "left",  padding: "6px 8px", color: "#64748b" }}>CONTEXT</th>
                             <th style={{ textAlign: "right", padding: "6px 8px", color: "#64748b" }}>PROJECTED</th>
                             <th style={{ textAlign: "right", padding: "6px 8px", color: "#64748b" }}>ACTUAL</th>
                             <th style={{ textAlign: "right", padding: "6px 8px", color: "#64748b" }}>RESIDUAL</th>
@@ -1781,9 +1818,38 @@ export default function NBAPropsModel() {
                             const resid = r.actual - r.projected;
                             const pct = r.projected > 0 ? (resid / r.projected * 100) : 0;
                             const color = Math.abs(pct) < 8 ? "#10b981" : Math.abs(pct) < 20 ? "#f59e0b" : "#ef4444";
+                            // Context tag pills — small visual badges per residual entry
+                            const ctxTags = [];
+                            if (r.ctx) {
+                              if (r.ctx.home === true)  ctxTags.push({ t: "🏠 H",  c: "#3b82f6" });
+                              if (r.ctx.home === false) ctxTags.push({ t: "✈️ A",  c: "#94a3b8" });
+                              if (r.ctx.po)             ctxTags.push({ t: "PO",    c: "#a855f7" });
+                              if (r.ctx.b2b)            ctxTags.push({ t: "B2B",   c: "#f59e0b" });
+                              if (r.ctx.leverage)       ctxTags.push({ t: "🔥G7",  c: "#ef4444" });
+                              if (Array.isArray(r.ctx.out) && r.ctx.out.length > 0) {
+                                ctxTags.push({ t: `⚡${r.ctx.out.length} OUT`, c: "#10b981" });
+                              }
+                            }
                             return (
                               <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,.04)" }}>
                                 <td style={{ padding: "5px 8px", color: "#c8d4e8" }}>{r.date || "n/a"}</td>
+                                <td style={{ padding: "5px 8px" }}>
+                                  {ctxTags.length === 0 ? (
+                                    <span style={{ color: "#475569", fontSize: 9 }}>—</span>
+                                  ) : (
+                                    <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+                                      {ctxTags.map((tag, idx) => (
+                                        <span key={idx} title={Array.isArray(r.ctx?.out) && tag.t.includes("OUT") ? r.ctx.out.join(", ") : ""} style={{
+                                          background: `${tag.c}15`,
+                                          color: tag.c,
+                                          border: `1px solid ${tag.c}55`,
+                                          fontSize: 8.5, padding: "1px 5px", borderRadius: 3,
+                                          fontWeight: 700, letterSpacing: ".05em",
+                                        }}>{tag.t}</span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </td>
                                 <td style={{ padding: "5px 8px", textAlign: "right", color: "#94a3b8" }}>{r.projected}</td>
                                 <td style={{ padding: "5px 8px", textAlign: "right", color: "#e8f0ff", fontWeight: 600 }}>{r.actual}</td>
                                 <td style={{ padding: "5px 8px", textAlign: "right", color }}>{resid >= 0 ? "+" : ""}{resid.toFixed(2)} ({pct >= 0 ? "+" : ""}{pct.toFixed(1)}%)</td>
@@ -1825,7 +1891,9 @@ export default function NBAPropsModel() {
                         >🗑 CLEAR THIS PROP</button>
                       </div>
                       <div style={{ marginTop: 10, fontSize: 10, color: "#64748b", lineHeight: 1.5 }}>
-                        <strong style={{ color: "#94a3b8" }}>How it works:</strong> Adj 14 (Residual Calibration) uses these samples to detect systematic over/under-projection. Duplicates skew the bias signal — dedupe collapses entries with the same date (one game per day per prop). Latest write wins.
+                        <strong style={{ color: "#94a3b8" }}>How it works:</strong> Adj 14 (Residual Calibration) uses these samples to detect systematic over/under-projection.
+                        <strong style={{ color: "#a855f7" }}> Context-aware:</strong> samples are matched by similar conditions (home/road, PO/RS, B2B, key teammates OUT) so calibration applies only when context resembles tonight's game. Falls back to global mean when ≥3 context-similar samples aren't available.
+                        Duplicates skew the bias signal — dedupe collapses entries with the same date. Latest write wins.
                       </div>
                     </div>
                   </details>
