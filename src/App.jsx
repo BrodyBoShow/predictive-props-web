@@ -304,6 +304,13 @@ export default function NBAPropsModel() {
   const [showBulkLog, setShowBulkLog] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [bulkResult, setBulkResult] = useState(null);
+  // ── Bulk projection panel ──
+  const [showBulk, setShowBulk] = useState(false);
+  const [bulkLines, setBulkLines] = useState({});        // { playerName: { propId: "line" } }
+  const [bulkProjResults, setBulkProjResults] = useState([]);
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
+  const [bulkProps, setBulkProps] = useState(["points", "rebounds", "assists"]);
   const ref = useRef(null);
 
   // ── Residual learning — localStorage stores actual outcomes per player/prop ──
@@ -723,6 +730,94 @@ export default function NBAPropsModel() {
     } catch {}
     setFetchingBox(false);
   }, [pkey, effectiveDB]);
+
+  // ── Bulk projection roster — away players first, then home ──────────────────
+  const bulkRosterPlayers = useMemo(() => {
+    if (!game || !gid) return [];
+    const awayList = (activeRosters[gid]?.[game.away] || []).map(n => ({ name: n, team: game.away, isHome: false }));
+    const homeList = (activeRosters[gid]?.[game.home] || []).map(n => ({ name: n, team: game.home, isHome: true }));
+    return [...awayList, ...homeList];
+  }, [game, gid, activeRosters]);
+
+  // ── Run all projections for lines the user filled in ─────────────────────────
+  const runBulkProjections = useCallback(async () => {
+    if (!game) return;
+    const L5_KEY = { points: "pts", rebounds: "reb", assists: "ast", steals: "stl", blocks: "blk", turnovers: "tov" };
+    // Build task list: only rows where the user entered a valid line
+    const tasks = [];
+    for (const player of bulkRosterPlayers) {
+      const propsForPlayer = bulkLines[player.name] || {};
+      for (const propId of bulkProps) {
+        const lineStr = propsForPlayer[propId];
+        const line = parseFloat(lineStr);
+        if (!lineStr || isNaN(line) || line <= 0) continue;
+        tasks.push({ ...player, propId, line });
+      }
+    }
+    if (tasks.length === 0) return;
+    setBulkRunning(true);
+    setBulkProjResults([]);
+    setBulkProgress({ done: 0, total: tasks.length });
+
+    // Cache recent data per player (avoid double-fetching)
+    const recentCache = {};
+    const results = [];
+
+    for (const task of tasks) {
+      const dbEntry = effectiveDB[task.name];
+      const pid = dbEntry?.pid;
+      if (!pid) { setBulkProgress(p => ({ ...p, done: p.done + 1 })); continue; }
+
+      if (!recentCache[task.name]) {
+        try {
+          const r = await fetch(`${API_BASE}/recent/${pid}`);
+          recentCache[task.name] = await r.json();
+        } catch { recentCache[task.name] = null; }
+      }
+      const recent = recentCache[task.name];
+      const gameLog = recent?.gameLog || [];
+      const l5Key = L5_KEY[task.propId];
+      const l5vals = l5Key ? gameLog.map(g => g[l5Key] || 0) : [];
+      const l5avg = l5vals.length ? +(l5vals.reduce((a, b) => a + b, 0) / l5vals.length).toFixed(2) : null;
+      const opp = task.team === game.home ? game.away : game.home;
+      const priorResiduals = getResiduals(task.name, task.propId).map(r => ({ projected: r.projected, actual: r.actual, ctx: r.ctx || null }));
+
+      try {
+        const resp = await fetch(`${API_BASE}/project`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            player_name: task.name, prop_type: task.propId, book_line: task.line,
+            opponent_abbr: opp, team_abbr: task.team, is_home: task.isHome,
+            rest_days: null,
+            l5_avg: l5avg, l5_min: recent?.recent?.min || null, l5_stat_values: l5vals,
+            high_leverage: /game\s*7|elimination|finals/i.test(game.title || ""),
+            prior_residuals: priorResiduals,
+          }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+          const proj = data.correlated_projection;
+          results.push({
+            name: task.name, team: task.team, propId: task.propId, line: task.line,
+            proj, base: data.base_projection,
+            ev: +((proj / task.line - 1) * 100).toFixed(1),
+            cv: data.confidence_band?.cv ?? null,
+            grade: data.grade || "SKIP",
+            lean: proj > task.line ? "OVER" : "UNDER",
+            drivers: data.drivers || [],
+          });
+        }
+      } catch {}
+      setBulkProgress(p => ({ ...p, done: p.done + 1 }));
+      await new Promise(r => setTimeout(r, 120));
+    }
+
+    const gradeOrder = { LOCK: 0, ACTIONABLE: 1, WATCH: 2, SKIP: 3 };
+    results.sort((a, b) => (gradeOrder[a.grade] - gradeOrder[b.grade]) || (Math.abs(b.ev) - Math.abs(a.ev)));
+    setBulkProjResults(results);
+    setBulkRunning(false);
+  }, [game, bulkRosterPlayers, bulkLines, bulkProps, effectiveDB, getResiduals]);
 
   // Fetch last-5 game logs + vs-opponent splits — placed here so effectiveDB is already initialized
   useEffect(() => {
@@ -1198,16 +1293,196 @@ export default function NBAPropsModel() {
               );
             }) : <div style={{color:"#2a3550",fontSize:11,padding:"10px 12px"}}>No games confirmed for tomorrow yet.</div>}</div>
           </div>
-          {/* Bulk log trigger */}
-          <div style={{ textAlign:"right", marginTop:8 }}>
+          {/* Bulk log + bulk project triggers */}
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8, gap:8 }}>
             <button onClick={() => { setShowBulkLog(true); setBulkResult(null); }}
               style={{ background:"rgba(16,185,129,.08)", border:"1px solid rgba(16,185,129,.2)", borderRadius:8,
                 color:"#10b981", cursor:"pointer", fontSize:9, fontFamily:"'Azeret Mono',monospace",
                 letterSpacing:".14em", padding:"6px 12px" }}>
               📋 BULK LOG PAST RESULTS
             </button>
+            {game && (
+              <button onClick={() => { setShowBulk(v => !v); setBulkProjResults([]); setBulkProgress({ done:0,total:0 }); }}
+                style={{ background: showBulk ? "rgba(99,102,241,.18)" : "rgba(99,102,241,.08)",
+                  border: `1px solid ${showBulk ? "rgba(99,102,241,.5)" : "rgba(99,102,241,.2)"}`,
+                  borderRadius:8, color:"#818cf8", cursor:"pointer", fontSize:9,
+                  fontFamily:"'Azeret Mono',monospace", letterSpacing:".14em", padding:"6px 12px" }}>
+                {showBulk ? "✕ CLOSE BULK" : "📊 BULK PROJECT"}
+              </button>
+            )}
           </div>
         </div>
+
+        {/* ── Bulk Projection Panel ──────────────────────────────────────────── */}
+        {showBulk && game && (() => {
+          const PROP_LABELS = { points:"PTS", rebounds:"REB", assists:"AST", steals:"STL", blocks:"BLK", turnovers:"TOV" };
+          const GRADE_COLOR = { LOCK:"#10b981", ACTIONABLE:"#3b82f6", WATCH:"#f59e0b", SKIP:"#475569" };
+          const filledCount = bulkRosterPlayers.reduce((acc, pl) => {
+            const row = bulkLines[pl.name] || {};
+            return acc + bulkProps.filter(p => row[p] && !isNaN(parseFloat(row[p]))).length;
+          }, 0);
+
+          return (
+            <div className="sec">
+              <div className="slabel">📊 BULK PROJECT — {game.away} @ {game.home} · {game.title}</div>
+              <div className="card" style={{ padding:0, overflow:"hidden" }}>
+
+                {/* ── Prop column toggles ── */}
+                <div style={{ padding:"12px 16px", borderBottom:"1px solid rgba(255,255,255,.06)", display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                  <span style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, color:"#475569", letterSpacing:".12em" }}>COLUMNS:</span>
+                  {Object.entries(PROP_LABELS).map(([pid, label]) => (
+                    <button key={pid}
+                      onClick={() => setBulkProps(prev => prev.includes(pid) ? prev.filter(p => p !== pid) : [...prev, pid])}
+                      style={{ padding:"3px 10px", borderRadius:4, fontSize:9, fontFamily:"'Azeret Mono',monospace", cursor:"pointer",
+                        background: bulkProps.includes(pid) ? "rgba(99,102,241,.2)" : "rgba(255,255,255,.04)",
+                        border: `1px solid ${bulkProps.includes(pid) ? "rgba(99,102,241,.5)" : "rgba(255,255,255,.08)"}`,
+                        color: bulkProps.includes(pid) ? "#818cf8" : "#475569" }}>
+                      {label}
+                    </button>
+                  ))}
+                  <span style={{ marginLeft:"auto", fontFamily:"'Azeret Mono',monospace", fontSize:9, color:"#475569" }}>
+                    {filledCount} line{filledCount !== 1 ? "s" : ""} entered
+                  </span>
+                </div>
+
+                {/* ── Player × Prop input grid ── */}
+                <div style={{ overflowX:"auto" }}>
+                  <table style={{ width:"100%", borderCollapse:"collapse", fontFamily:"'Azeret Mono',monospace", fontSize:11 }}>
+                    <thead>
+                      <tr style={{ borderBottom:"1px solid rgba(255,255,255,.08)" }}>
+                        <th style={{ textAlign:"left", padding:"8px 12px", color:"#475569", fontSize:9, letterSpacing:".1em", minWidth:160 }}>PLAYER</th>
+                        <th style={{ textAlign:"center", padding:"8px 6px", color:"#475569", fontSize:9, width:48 }}>TEAM</th>
+                        {bulkProps.map(pid => (
+                          <th key={pid} style={{ textAlign:"center", padding:"8px 6px", color:"#6366f1", fontSize:9, minWidth:80 }}>{PROP_LABELS[pid]}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bulkRosterPlayers.map((pl, idx) => {
+                        const isAway = pl.team === game.away;
+                        const rowBg = idx % 2 === 0 ? "rgba(255,255,255,.01)" : "transparent";
+                        const teamColor = isAway ? "#94a3b8" : "#c8d4e8";
+                        return (
+                          <tr key={pl.name} style={{ background: rowBg, borderBottom:"1px solid rgba(255,255,255,.03)" }}>
+                            <td style={{ padding:"5px 12px", color:"#c8d4e8" }}>
+                              {pl.name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}
+                            </td>
+                            <td style={{ padding:"5px 6px", textAlign:"center", color: teamColor, fontSize:9 }}>{pl.team}</td>
+                            {bulkProps.map(pid => {
+                              const val = (bulkLines[pl.name] || {})[pid] || "";
+                              return (
+                                <td key={pid} style={{ padding:"3px 4px", textAlign:"center" }}>
+                                  <input
+                                    type="number" step="0.5" min="0"
+                                    value={val}
+                                    placeholder="—"
+                                    onChange={e => setBulkLines(prev => ({
+                                      ...prev,
+                                      [pl.name]: { ...(prev[pl.name] || {}), [pid]: e.target.value }
+                                    }))}
+                                    style={{ width:72, padding:"4px 6px", background:"rgba(255,255,255,.04)",
+                                      border:"1px solid rgba(255,255,255,.08)", borderRadius:4, color:"#c8d4e8",
+                                      fontSize:12, fontFamily:"'Azeret Mono',monospace", outline:"none", textAlign:"center" }}
+                                  />
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* ── Run button + progress ── */}
+                <div style={{ padding:"12px 16px", borderTop:"1px solid rgba(255,255,255,.06)", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
+                  <button
+                    disabled={bulkRunning || filledCount === 0}
+                    onClick={runBulkProjections}
+                    style={{ padding:"8px 20px", background: bulkRunning ? "rgba(99,102,241,.1)" : "rgba(99,102,241,.2)",
+                      border:"1px solid rgba(99,102,241,.4)", borderRadius:6, color:"#818cf8",
+                      cursor: filledCount > 0 && !bulkRunning ? "pointer" : "not-allowed",
+                      fontSize:10, fontFamily:"'Azeret Mono',monospace", letterSpacing:".12em",
+                      opacity: filledCount > 0 ? 1 : 0.4 }}>
+                    {bulkRunning ? `RUNNING ${bulkProgress.done}/${bulkProgress.total}…` : `▶ RUN ALL (${filledCount} prop${filledCount !== 1 ? "s" : ""})`}
+                  </button>
+                  {bulkRunning && (
+                    <div style={{ flex:1, height:4, background:"rgba(255,255,255,.06)", borderRadius:2, minWidth:120 }}>
+                      <div style={{ height:"100%", borderRadius:2, background:"#6366f1",
+                        width: `${bulkProgress.total > 0 ? (bulkProgress.done / bulkProgress.total * 100) : 0}%`,
+                        transition:"width .2s ease" }} />
+                    </div>
+                  )}
+                  {!bulkRunning && bulkProjResults.length > 0 && (
+                    <span style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, color:"#475569" }}>
+                      {bulkProjResults.length} results · {bulkProjResults.filter(r => r.grade === "LOCK").length} LOCK · {bulkProjResults.filter(r => r.grade === "ACTIONABLE").length} ACT
+                    </span>
+                  )}
+                  {bulkProjResults.length > 0 && (
+                    <button onClick={() => setBulkProjResults([])}
+                      style={{ marginLeft:"auto", background:"rgba(239,68,68,.06)", border:"1px solid rgba(239,68,68,.2)",
+                        borderRadius:4, color:"#ef4444", cursor:"pointer", fontSize:9,
+                        fontFamily:"'Azeret Mono',monospace", padding:"4px 10px" }}>
+                      CLEAR
+                    </button>
+                  )}
+                </div>
+
+                {/* ── Results table ── */}
+                {bulkProjResults.length > 0 && (
+                  <div style={{ borderTop:"1px solid rgba(255,255,255,.06)" }}>
+                    {["LOCK","ACTIONABLE","WATCH","SKIP"].map(tier => {
+                      const rows = bulkProjResults.filter(r => r.grade === tier);
+                      if (rows.length === 0) return null;
+                      const tierColor = GRADE_COLOR[tier];
+                      return (
+                        <div key={tier}>
+                          <div style={{ padding:"6px 14px", background:`${tierColor}0d`,
+                            borderBottom:"1px solid rgba(255,255,255,.04)",
+                            fontFamily:"'Azeret Mono',monospace", fontSize:9, color: tierColor,
+                            letterSpacing:".14em", fontWeight:700 }}>
+                            {tier} ({rows.length})
+                          </div>
+                          {rows.map((r, i) => {
+                            const evColor = Math.abs(r.ev) > 10 ? tierColor : "#94a3b8";
+                            const lift = r.base > 0 ? Math.abs((r.proj - r.base) / r.base * 100).toFixed(1) : "—";
+                            const cvStr = r.cv != null ? r.cv.toFixed(2) : "—";
+                            return (
+                              <div key={i} style={{ padding:"7px 16px", borderBottom:"1px solid rgba(255,255,255,.03)",
+                                display:"flex", gap:12, alignItems:"center", flexWrap:"wrap",
+                                fontFamily:"'Azeret Mono',monospace", fontSize:11 }}>
+                                <span style={{ color:"#c8d4e8", minWidth:140 }}>
+                                  {r.name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}
+                                </span>
+                                <span style={{ color:"#475569", fontSize:9, minWidth:36 }}>{r.team}</span>
+                                <span style={{ color:"#64748b", fontSize:9, minWidth:60 }}>{PROP_LABELS[r.propId]}</span>
+                                <span style={{ color: r.lean === "OVER" ? "#10b981" : "#ef4444", fontWeight:700, minWidth:48 }}>
+                                  {r.lean}
+                                </span>
+                                <span style={{ color:"#475569" }}>line <span style={{ color:"#94a3b8" }}>{r.line}</span></span>
+                                <span style={{ color:"#c8d4e8" }}>proj <span style={{ fontWeight:700 }}>{r.proj.toFixed(1)}</span></span>
+                                <span style={{ color: evColor, fontWeight:700 }}>EV {r.ev >= 0 ? "+" : ""}{r.ev}%</span>
+                                <span style={{ color:"#475569" }}>CV {cvStr}</span>
+                                <span style={{ color:"#334155", fontSize:9 }}>lift {lift}%</span>
+                                <button
+                                  onClick={() => { selGame(gid); setPname(r.name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")); setPkey(r.name); setShowBulk(false); }}
+                                  style={{ marginLeft:"auto", padding:"3px 10px", background:"rgba(99,102,241,.1)",
+                                    border:"1px solid rgba(99,102,241,.25)", borderRadius:4, color:"#818cf8",
+                                    cursor:"pointer", fontSize:8, fontFamily:"'Azeret Mono',monospace" }}>
+                                  OPEN →
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         <div className="sec">
           <div className="slabel">02 — Player</div>
