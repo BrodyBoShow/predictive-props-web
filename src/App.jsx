@@ -293,6 +293,8 @@ export default function NBAPropsModel() {
   const [pkey, setPkey] = useState(null);
   const [prop, setProp] = useState(null);
   const [line, setLine] = useState("");
+  const [oddsStatus, setOddsStatus] = useState("");
+  const [oddsLoading, setOddsLoading] = useState(false);
   const [ddOpen, setDdOpen] = useState(false);
   const [result, setResult] = useState(null);
   const [err, setErr] = useState(null);
@@ -1028,8 +1030,28 @@ export default function NBAPropsModel() {
   const byTeam = {};
   filtered.forEach(p => { if (!byTeam[p.team]) byTeam[p.team] = []; byTeam[p.team].push(p); });
 
-  const reset = () => { setResult(null); setErr(null); setPname(""); setPkey(null); setProp(null); setLine(""); setDdOpen(false); setActualInput(""); };
+  const reset = () => { setResult(null); setErr(null); setPname(""); setPkey(null); setProp(null); setLine(""); setOddsStatus(""); setDdOpen(false); setActualInput(""); };
   const selGame = id => { setGid(id); setPname(""); setPkey(null); setResult(null); setErr(null); setDdOpen(false); };
+
+  // ── Auto-fetch live sportsbook line when player + prop are selected ──
+  useEffect(() => {
+    if (!pkey || !prop) { setOddsStatus(""); return; }
+    setOddsLoading(true);
+    setOddsStatus("Fetching live line…");
+    const encoded = encodeURIComponent(pkey);
+    fetch(`${API_BASE}/live-line/${encoded}/${prop.id}`)
+      .then(async r => {
+        const d = await r.json();
+        if (r.ok) {
+          setLine(String(d.consensus_line));
+          setOddsStatus(`Live: ${d.consensus_line} · ${d.books_tracked} book${d.books_tracked !== 1 ? "s" : ""}`);
+        } else {
+          setOddsStatus(d.error || "No line posted yet");
+        }
+      })
+      .catch(() => setOddsStatus("Odds unavailable"))
+      .finally(() => setOddsLoading(false));
+  }, [pkey, prop]);
 
   // ── Extract L5 game-by-game stat values for the active prop type ──
   // Feeds server's _confidence_band → variance/floor/ceiling/trust score.
@@ -1692,12 +1714,19 @@ export default function NBAPropsModel() {
 
         {prop && (
           <div className="sec">
-            <div className="slabel">04 — Sportsbook Line</div>
+            <div className="slabel">
+              04 — Sportsbook Line
+              {oddsStatus && (
+                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 500, color: oddsLoading ? "#f59e0b" : oddsStatus.startsWith("Live:") ? "#10b981" : "#64748b" }}>
+                  {oddsStatus}
+                </span>
+              )}
+            </div>
             <div className="card">
               <div className="lwrap">
                 <div style={{ fontSize: 13, color: "#3a4a62" }}>{prop.label} O/U</div>
-                <input className="li" type="number" step="0.5" min="0" placeholder="—" value={line} onChange={e => setLine(e.target.value)} />
-                <div className="lh">Enter the book line (e.g. 18.5)</div>
+                <input className="li" type="number" step="0.5" min="0" placeholder="—" value={line} onChange={e => setLine(e.target.value)} disabled={oddsLoading} />
+                <div className="lh">{oddsLoading ? "Pulling live line…" : "Override or confirm the auto-filled line"}</div>
               </div>
             </div>
           </div>
