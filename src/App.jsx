@@ -320,19 +320,42 @@ export default function NBAPropsModel() {
   // ── Residual learning — localStorage stores actual outcomes per player/prop ──
   // Enables the model to learn its systematic bias over time (no server needed).
   // Projection/actual pairs sent to /api/project → server applies Adjustment 14.
-  // ── Dedupe helper — collapses duplicate-date entries (keeps latest per date) ──
-  // Why: rapid double-clicks on SAVE or accidental re-logs were polluting the
-  // residual sample. Adj 14 (residual calibration) needs UNIQUE outcomes per game.
-  // Rule: one entry per (date) per (player, prop). Latest write wins.
+  // ── Dedupe helper ───────────────────────────────────────────────────────────
+  // Pass 1: collapse same-date entries (latest write wins).
+  // Pass 2: collapse same-game entries — if two entries share the same actual
+  //   AND projected values within a 2-day window, they came from the same box
+  //   score (UTC midnight re-log bug). Keep the entry with the later date.
   const dedupeResidualsArray = useCallback((arr) => {
     if (!Array.isArray(arr)) return [];
+
+    // Pass 1 — by date (existing behaviour)
     const byDate = new Map();
     for (const e of arr) {
       if (!e || typeof e !== "object") continue;
       const d = e.date || "_undated_";
-      byDate.set(d, e);   // later iterations overwrite earlier — latest wins
+      byDate.set(d, e);
     }
-    return Array.from(byDate.values()).slice(-20);
+    let entries = Array.from(byDate.values()).sort((a, b) =>
+      (a.date || "").localeCompare(b.date || "")
+    );
+
+    // Pass 2 — same box score across adjacent dates
+    // Key = `${actual}__${projected}`. Within ±2 days, dedupe to later date.
+    const seen = new Map();   // gameKey → index in `out`
+    const out  = [];
+    for (const e of entries) {
+      const gameKey = `${+(e.actual ?? 0).toFixed(2)}__${+(e.projected ?? 0).toFixed(2)}`;
+      if (seen.has(gameKey)) {
+        const prevIdx = seen.get(gameKey);
+        // Replace earlier entry with this one (later date wins)
+        out[prevIdx] = e;
+      } else {
+        seen.set(gameKey, out.length);
+        out.push(e);
+      }
+    }
+
+    return out.slice(-20);
   }, []);
 
   const getResiduals = useCallback((playerKey, propId) => {
