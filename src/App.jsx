@@ -842,12 +842,14 @@ export default function NBAPropsModel() {
         const data = await resp.json();
         if (data.success) {
           const proj = data.correlated_projection;
+          const base = data.base_projection;
+          const ev   = +((proj / task.line - 1) * 100).toFixed(1);
+          const cv   = data.confidence_band?.cv ?? null;
+          const poGp = data.data_quality?.po_gp ?? 0;
+          const grade = computeGrade({ evPct: ev, cv, poGp, projection: proj, baseline: base });
           results.push({
             name: task.name, team: task.team, propId: task.propId, line: task.line,
-            proj, base: data.base_projection,
-            ev: +((proj / task.line - 1) * 100).toFixed(1),
-            cv: data.confidence_band?.cv ?? null,
-            grade: data.grade || "SKIP",
+            proj, base, ev, cv, grade,
             lean: proj > task.line ? "OVER" : "UNDER",
           });
         }
