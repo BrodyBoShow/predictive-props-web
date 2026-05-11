@@ -313,6 +313,8 @@ export default function NBAPropsModel() {
   const [bulkRunning, setBulkRunning] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
   const [bulkProps, setBulkProps] = useState(["points", "rebounds", "assists"]);
+  const [bulkOddsLoading, setBulkOddsLoading] = useState(false);
+  const [bulkOddsStatus, setBulkOddsStatus] = useState("");
   // ── Auto residual logger ──
   const [autoLogRunning, setAutoLogRunning] = useState(false);
   const [autoLogProgress, setAutoLogProgress] = useState({ done: 0, total: 0 });
@@ -858,6 +860,39 @@ export default function NBAPropsModel() {
     setBulkProjResults(results);
     setBulkRunning(false);
   }, [game, bulkRosterPlayers, bulkLines, bulkProps, effectiveDB, getResiduals]);
+
+  // ── Bulk live-line fetch — pulls Odds API slate (server-cached) for all players × props ──
+  const fetchBulkLines = useCallback(async () => {
+    if (!bulkRosterPlayers.length || !bulkProps.length) return;
+    setBulkOddsLoading(true);
+    setBulkOddsStatus("Fetching live lines…");
+    let filled = 0, missing = 0;
+    const updates = {};
+    for (const player of bulkRosterPlayers) {
+      updates[player.name] = {};
+      for (const propId of bulkProps) {
+        try {
+          const r = await fetch(`${API_BASE}/live-line/${encodeURIComponent(player.name)}/${propId}`);
+          const d = await r.json();
+          if (r.ok && d.consensus_line != null) {
+            updates[player.name][propId] = String(d.consensus_line);
+            filled++;
+          } else {
+            missing++;
+          }
+        } catch { missing++; }
+      }
+    }
+    setBulkLines(prev => {
+      const next = { ...prev };
+      for (const [name, props] of Object.entries(updates)) {
+        next[name] = { ...(next[name] || {}), ...props };
+      }
+      return next;
+    });
+    setBulkOddsStatus(`${filled} line${filled !== 1 ? "s" : ""} filled · ${missing} not posted`);
+    setBulkOddsLoading(false);
+  }, [bulkRosterPlayers, bulkProps]);
 
   // ── Auto residual logger — no lines needed, proj vs box-score actual ─────────
   // Runs after a game completes. For each roster player: fetches box score,
@@ -1571,6 +1606,18 @@ export default function NBAPropsModel() {
 
                 {/* ── Run button + progress ── */}
                 <div style={{ padding:"12px 16px", borderTop:"1px solid rgba(255,255,255,.06)", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
+                  <button
+                    disabled={bulkOddsLoading || bulkRunning}
+                    onClick={fetchBulkLines}
+                    style={{ padding:"8px 16px", background:"rgba(16,185,129,.12)", border:"1px solid rgba(16,185,129,.35)",
+                      borderRadius:6, color:"#10b981", cursor: bulkOddsLoading || bulkRunning ? "not-allowed" : "pointer",
+                      fontSize:10, fontFamily:"'Azeret Mono',monospace", letterSpacing:".12em",
+                      opacity: bulkOddsLoading || bulkRunning ? 0.5 : 1 }}>
+                    {bulkOddsLoading ? "PULLING…" : "⚡ PULL LIVE LINES"}
+                  </button>
+                  {bulkOddsStatus && !bulkOddsLoading && (
+                    <span style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, color:"#10b981" }}>{bulkOddsStatus}</span>
+                  )}
                   <button
                     disabled={bulkRunning || filledCount === 0}
                     onClick={runBulkProjections}
