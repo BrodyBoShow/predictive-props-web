@@ -1681,6 +1681,10 @@ export default function NBAPropsModel() {
                                 <span style={{ color: r.lean === "OVER" ? "#10b981" : "#ef4444", fontWeight:700, minWidth:48 }}>
                                   {r.lean}
                                 </span>
+                                <span style={{ padding:"2px 7px", borderRadius:3, fontSize:8, fontWeight:700, letterSpacing:".1em",
+                                  background:`${tierColor}22`, border:`1px solid ${tierColor}55`, color: tierColor }}>
+                                  {tier}
+                                </span>
                                 <span style={{ color:"#475569" }}>line <span style={{ color:"#94a3b8" }}>{r.line}</span></span>
                                 <span style={{ color:"#c8d4e8" }}>proj <span style={{ fontWeight:700 }}>{r.proj.toFixed(1)}</span></span>
                                 <span style={{ color: evColor, fontWeight:700 }}>EV {r.ev >= 0 ? "+" : ""}{r.ev}%</span>
