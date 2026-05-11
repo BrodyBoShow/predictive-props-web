@@ -855,6 +855,33 @@ export default function NBAPropsModel() {
       setBulkProgress(p => ({ ...p, done: p.done + 1 }));
       await new Promise(r => setTimeout(r, 120));
     }
+    // ── Team-total ceiling normalization ─────────────────────────────────────
+    // Players on the same team share possessions. If projected pts for the
+    // tracked scorer pool exceeds the expected team ceiling, scale everyone
+    // down proportionally. Only applies to "points" prop rows.
+    // Expected ceiling: NBA avg ~115 pts/game; tracked players cover ~80% of
+    // scoring → ceiling for the bulk pool ≈ 92 pts per team.
+    const TEAM_PTS_CEILING = 92;
+    const byTeam = {};
+    results.forEach(r => {
+      if (r.propId === "points") {
+        if (!byTeam[r.team]) byTeam[r.team] = [];
+        byTeam[r.team].push(r);
+      }
+    });
+    Object.values(byTeam).forEach(rows => {
+      const teamTotal = rows.reduce((s, r) => s + (r.proj || 0), 0);
+      if (teamTotal > TEAM_PTS_CEILING) {
+        const scale = TEAM_PTS_CEILING / teamTotal;
+        rows.forEach(r => {
+          r.proj       = +( r.proj * scale).toFixed(1);
+          r.ev         = +((r.proj / r.line - 1) * 100).toFixed(1);
+          r.lean       = r.proj > r.line ? "OVER" : "UNDER";
+          r.teamScaled = true;   // flag for UI indicator
+        });
+      }
+    });
+
     const gradeOrder = { LOCK: 0, ACTIONABLE: 1, WATCH: 2, SKIP: 3 };
     results.sort((a, b) => (gradeOrder[a.grade] - gradeOrder[b.grade]) || (Math.abs(b.ev) - Math.abs(a.ev)));
     setBulkProjResults(results);
@@ -1650,6 +1677,29 @@ export default function NBAPropsModel() {
                   )}
                 </div>
 
+                {/* ── Team-ceiling warning banners ── */}
+                {bulkProjResults.length > 0 && (() => {
+                  const ptsByTeam = {};
+                  bulkProjResults.filter(r => r.propId === "points").forEach(r => {
+                    if (!ptsByTeam[r.team]) ptsByTeam[r.team] = { overs: 0, total: 0, scaled: false };
+                    ptsByTeam[r.team].total++;
+                    if (r.lean === "OVER") ptsByTeam[r.team].overs++;
+                    if (r.teamScaled) ptsByTeam[r.team].scaled = true;
+                  });
+                  const warnings = Object.entries(ptsByTeam).filter(([, v]) => v.total >= 3 && v.overs / v.total >= 0.75);
+                  if (!warnings.length) return null;
+                  return (
+                    <div style={{ padding:"8px 14px", borderTop:"1px solid rgba(245,158,11,.15)", background:"rgba(245,158,11,.05)" }}>
+                      {warnings.map(([team, v]) => (
+                        <div key={team} style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, color:"#f59e0b", marginBottom:2 }}>
+                          ⚠ {team} — {v.overs}/{v.total} pts props leaning OVER
+                          {v.scaled ? " · team-total ceiling applied (scaled down)" : " · approaching team-total ceiling — treat with caution"}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
                 {/* ── Results table ── */}
                 {bulkProjResults.length > 0 && (
                   <div style={{ borderTop:"1px solid rgba(255,255,255,.06)" }}>
@@ -1686,7 +1736,7 @@ export default function NBAPropsModel() {
                                   {tier}
                                 </span>
                                 <span style={{ color:"#475569" }}>line <span style={{ color:"#94a3b8" }}>{r.line}</span></span>
-                                <span style={{ color:"#c8d4e8" }}>proj <span style={{ fontWeight:700 }}>{r.proj.toFixed(1)}</span></span>
+                                <span style={{ color:"#c8d4e8" }}>proj <span style={{ fontWeight:700 }}>{r.proj.toFixed(1)}</span>{r.teamScaled && <span style={{ color:"#f59e0b", fontSize:8, marginLeft:2 }} title="Scaled: team-total ceiling applied">~</span>}</span>
                                 <span style={{ color: evColor, fontWeight:700 }}>EV {r.ev >= 0 ? "+" : ""}{r.ev}%</span>
                                 <span style={{ color:"#475569" }}>CV {cvStr}</span>
                                 <span style={{ color:"#334155", fontSize:9 }}>lift {lift}%</span>
