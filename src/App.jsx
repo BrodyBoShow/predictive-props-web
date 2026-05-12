@@ -860,6 +860,7 @@ export default function NBAPropsModel() {
             name: task.name, team: task.team, propId: task.propId, line: task.line,
             proj, base, ev, cv, grade,
             lean: proj > task.line ? "OVER" : "UNDER",
+            band: data.confidence_band ?? null,
           });
         }
       } catch {}
@@ -1740,6 +1741,26 @@ export default function NBAPropsModel() {
                                 </span>
                                 <span style={{ color:"#475569" }}>line <span style={{ color:"#94a3b8" }}>{r.line}</span></span>
                                 <span style={{ color:"#c8d4e8" }}>proj <span style={{ fontWeight:700 }}>{r.proj.toFixed(1)}</span>{r.teamOverWarn && <span style={{ color:"#f59e0b", fontSize:8, marginLeft:2 }} title="High team OVER rate — verify totals">⚠</span>}</span>
+                                {r.band && (() => {
+                                  const cb = r.band;
+                                  const barMin  = Math.max(0, cb.floor - 1);
+                                  const barMax  = cb.ceiling + 1;
+                                  const barSpan = barMax - barMin || 1;
+                                  const pctOf   = v => `${Math.min(100, Math.max(0, ((v - barMin) / barSpan) * 100)).toFixed(1)}%`;
+                                  const straddles = r.line > 0 && cb.floor <= r.line && cb.ceiling >= r.line;
+                                  const isXgb = cb.source === "xgb_quantile";
+                                  return (
+                                    <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}>
+                                      <span style={{ position:"relative", display:"inline-block", width:80, height:5, background:"rgba(99,102,241,.1)", borderRadius:3, border:"1px solid rgba(99,102,241,.15)", flexShrink:0 }}>
+                                        <span style={{ position:"absolute", left:pctOf(cb.floor), right:`${(100-parseFloat(pctOf(cb.ceiling))).toFixed(1)}%`, top:0, bottom:0, background:"rgba(99,102,241,.2)", borderRadius:2 }} />
+                                        <span style={{ position:"absolute", left:pctOf(r.proj), top:-2, width:7, height:7, borderRadius:"50%", background:"#6366f1", transform:"translateX(-50%)", border:"1px solid #1e293b" }} />
+                                        {r.line > 0 && <span style={{ position:"absolute", left:pctOf(r.line), top:-2, width:2, height:9, background: straddles ? "#f59e0b" : "#ef4444", borderRadius:1 }} />}
+                                      </span>
+                                      <span style={{ fontSize:8, color:"#475569" }}>{cb.floor}–{cb.ceiling}</span>
+                                      {isXgb && <span style={{ fontSize:7, color:"#6366f1" }}>⚡</span>}
+                                    </span>
+                                  );
+                                })()}
                                 <span style={{ color: evColor, fontWeight:700 }}>EV {r.ev >= 0 ? "+" : ""}{r.ev}%</span>
                                 <span style={{ color:"#475569" }}>CV {cvStr}</span>
                                 <span style={{ color:"#334155", fontSize:9 }}>lift {lift}%</span>
@@ -1907,14 +1928,33 @@ export default function NBAPropsModel() {
                     const cb = serverCorr.confidenceBand;
                     const trustColor = cb.trust_score >= 70 ? "#10b981" : cb.trust_score >= 40 ? "#f59e0b" : "#ef4444";
                     const straddles = l > 0 && cb.floor <= l && cb.ceiling >= l;
+                    const isXgb = cb.source === "xgb_quantile";
+                    // Visual range bar: position floor, proj dot, ceiling, line tick
+                    const barMin  = Math.max(0, cb.floor - 1);
+                    const barMax  = cb.ceiling + 1;
+                    const barSpan = barMax - barMin || 1;
+                    const pctOf   = v => `${Math.min(100, Math.max(0, ((v - barMin) / barSpan) * 100)).toFixed(1)}%`;
                     return (
                       <>
                         <span style={{ color: "#2a3550" }}>BAND    │</span>
-                        <span style={{ color: "#c8d4e8" }}>
-                          {cb.floor} – {cb.ceiling} {pr.label3}
-                          <span style={{ color: trustColor, marginLeft: 10, fontWeight: 700 }}>TRUST {cb.trust_score}</span>
-                          <span style={{ color: "#2a3550", fontSize: 9, marginLeft: 8 }}>
-                            (CV {cb.cv} · σ {cb.std} · n {cb.n}){straddles ? " · ⚠ STRADDLES LINE" : ""}
+                        <span style={{ color: "#c8d4e8", width: "100%", display: "flex", flexDirection: "column", gap: 3 }}>
+                          {/* Range bar */}
+                          <span style={{ position: "relative", height: 6, background: "rgba(99,102,241,.12)", borderRadius: 3, display: "block", width: 200, flexShrink: 0, border: "1px solid rgba(99,102,241,.2)" }}>
+                            {/* Filled band region */}
+                            <span style={{ position: "absolute", left: pctOf(cb.floor), right: `${(100 - parseFloat(pctOf(cb.ceiling))).toFixed(1)}%`, top: 0, bottom: 0, background: "rgba(99,102,241,.25)", borderRadius: 2 }} />
+                            {/* Proj dot */}
+                            <span style={{ position: "absolute", left: pctOf(finalProj ?? cb.floor), top: -2, width: 10, height: 10, borderRadius: "50%", background: "#6366f1", transform: "translateX(-50%)", border: "2px solid #1e293b" }} />
+                            {/* Line tick */}
+                            {l > 0 && <span style={{ position: "absolute", left: pctOf(l), top: -3, width: 2, height: 12, background: straddles ? "#f59e0b" : "#ef4444", borderRadius: 1 }} />}
+                          </span>
+                          {/* Labels */}
+                          <span style={{ fontSize: 9, color: "#64748b", display: "flex", gap: 8 }}>
+                            <span style={{ color: "#94a3b8" }}>{cb.floor} floor</span>
+                            <span style={{ color: "#c8d4e8" }}>●&nbsp;{(finalProj ?? "?").toFixed?.(1)} proj</span>
+                            {l > 0 && <span style={{ color: straddles ? "#f59e0b" : "#ef4444" }}>│ {l} line{straddles ? " ⚠ straddles" : ""}</span>}
+                            <span style={{ color: "#94a3b8" }}>{cb.ceiling} ceil</span>
+                            {cb.trust_score != null && <span style={{ color: trustColor, fontWeight: 700 }}>TRUST {cb.trust_score}</span>}
+                            <span style={{ color: "#334155" }}>{isXgb ? "⚡ XGB q25/q75" : `σ ${cb.std} · n ${cb.n}`}</span>
                           </span>
                         </span>
                       </>
