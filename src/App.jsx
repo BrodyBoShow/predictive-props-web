@@ -833,8 +833,8 @@ export default function NBAPropsModel() {
       const l5avg = l5AggKey && recent?.recent?.[l5AggKey] != null
         ? +Number(recent.recent[l5AggKey]).toFixed(2)
         : null;
-      // Per-game values still used for variance band; filter null/DNP entries
-      const l5vals = l5Key ? gameLog.map(g => g[l5Key] ?? 0).filter(v => v > 0 || gameLog.length <= 3) : [];
+      // Per-game values — match single-player extractL5StatValues (include zeros, no DNP filter)
+      const l5vals = l5Key ? gameLog.map(g => g[l5Key] || 0) : [];
       const opp = task.team === game.home ? game.away : game.home;
       const priorResiduals = getResiduals(task.name, task.propId).map(r => ({ projected: r.projected, actual: r.actual, ctx: r.ctx || null }));
       try {
