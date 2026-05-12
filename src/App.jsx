@@ -1706,63 +1706,66 @@ export default function NBAPropsModel() {
                   )}
                 </div>
 
-                {/* ── Game context strip (Vegas totals + spreads) ── */}
-                {bulkProjResults.length > 0 && (() => {
-                  const gameCtxMap = {};
-                  bulkProjResults.forEach(r => {
-                    if (r.gameCtx?.total && r.team) {
-                      const key = r.team;
-                      if (!gameCtxMap[key]) gameCtxMap[key] = { ...r.gameCtx, team: r.team };
-                    }
-                  });
-                  const games = Object.values(gameCtxMap);
-                  if (!games.length) return null;
-                  const uniqueGames = [];
-                  const seen = new Set();
-                  games.forEach(g => {
-                    const k = [g.total, g.spread].join("_");
-                    if (!seen.has(k)) { seen.add(k); uniqueGames.push(g); }
-                  });
-                  return (
-                    <div style={{ padding:"6px 14px", borderTop:"1px solid rgba(99,102,241,.1)", background:"rgba(99,102,241,.03)", display:"flex", gap:16, flexWrap:"wrap" }}>
-                      {uniqueGames.map((g, i) => (
-                        <span key={i} style={{ fontFamily:"'Azeret Mono',monospace", fontSize:8, color:"#64748b" }}>
-                          <span style={{ color:"#475569" }}>Total </span>
-                          <span style={{ color:"#c8d4e8", fontWeight:700 }}>{g.total}</span>
-                          {g.spread != null && <>
-                            <span style={{ color:"#475569", marginLeft:6 }}>Spread </span>
-                            <span style={{ color: g.spread < 0 ? "#10b981" : "#f59e0b", fontWeight:700 }}>{g.spread > 0 ? "+" : ""}{g.spread}</span>
-                          </>}
-                        </span>
-                      ))}
-                    </div>
-                  );
-                })()}
-
-                {/* ── Team-ceiling warning banners ── */}
-                {bulkProjResults.length > 0 && (() => {
-                  const ptsByTeam = {};
-                  bulkProjResults.filter(r => r.propId === "points").forEach(r => {
-                    if (!ptsByTeam[r.team]) ptsByTeam[r.team] = { overs: 0, total: 0 };
-                    ptsByTeam[r.team].total++;
-                    if (r.lean === "OVER") ptsByTeam[r.team].overs++;
-                  });
-                  const warnings = Object.entries(ptsByTeam).filter(([, v]) => v.total >= 3 && v.overs / v.total >= 0.75);
-                  if (!warnings.length) return null;
-                  return (
-                    <div style={{ padding:"8px 14px", borderTop:"1px solid rgba(245,158,11,.15)", background:"rgba(245,158,11,.05)" }}>
-                      {warnings.map(([team, v]) => (
-                        <div key={team} style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, color:"#f59e0b", marginBottom:2 }}>
-                          ⚠ {team} — {v.overs}/{v.total} pts props leaning OVER
-                          {v.scaled ? " · team-total ceiling applied (scaled down)" : " · approaching team-total ceiling — treat with caution"}
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-
-                {/* ── Results table ── */}
+                {/* ── Bulk results ── */}
                 {bulkProjResults.length > 0 && (
+                  <div className="bulk-table-container" style={{ marginTop: 12 }}>
+
+                  {/* ── Game context strip (Vegas totals + spreads) ── */}
+                  {(() => {
+                    const gameCtxMap = {};
+                    bulkProjResults.forEach(r => {
+                      if (r.gameCtx?.total && r.team) {
+                        const key = r.team;
+                        if (!gameCtxMap[key]) gameCtxMap[key] = { ...r.gameCtx, team: r.team };
+                      }
+                    });
+                    const games = Object.values(gameCtxMap);
+                    if (!games.length) return null;
+                    const uniqueGames = [];
+                    const seen = new Set();
+                    games.forEach(g => {
+                      const k = [g.total, g.spread].join("_");
+                      if (!seen.has(k)) { seen.add(k); uniqueGames.push(g); }
+                    });
+                    return (
+                      <div style={{ padding:"6px 14px", borderBottom:"1px solid rgba(99,102,241,.1)", background:"rgba(99,102,241,.03)", display:"flex", gap:16, flexWrap:"wrap" }}>
+                        {uniqueGames.map((g, i) => (
+                          <span key={i} style={{ fontFamily:"'Azeret Mono',monospace", fontSize:11, color:"#64748b" }}>
+                            <span style={{ color:"#475569" }}>Total </span>
+                            <span style={{ color:"#c8d4e8", fontWeight:700 }}>{g.total}</span>
+                            {g.spread != null && <>
+                              <span style={{ color:"#475569", marginLeft:6 }}>Spread </span>
+                              <span style={{ color: g.spread < 0 ? "#10b981" : "#f59e0b", fontWeight:700 }}>{g.spread > 0 ? "+" : ""}{g.spread}</span>
+                            </>}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
+                  {/* ── Team-ceiling warning banners ── */}
+                  {(() => {
+                    const ptsByTeam = {};
+                    bulkProjResults.filter(r => r.propId === "points").forEach(r => {
+                      if (!ptsByTeam[r.team]) ptsByTeam[r.team] = { overs: 0, total: 0 };
+                      ptsByTeam[r.team].total++;
+                      if (r.lean === "OVER") ptsByTeam[r.team].overs++;
+                    });
+                    const warnings = Object.entries(ptsByTeam).filter(([, v]) => v.total >= 3 && v.overs / v.total >= 0.75);
+                    if (!warnings.length) return null;
+                    return (
+                      <div style={{ padding:"8px 14px", borderBottom:"1px solid rgba(245,158,11,.15)", background:"rgba(245,158,11,.05)" }}>
+                        {warnings.map(([team, v]) => (
+                          <div key={team} style={{ fontFamily:"'Azeret Mono',monospace", fontSize:11, color:"#f59e0b", marginBottom:2 }}>
+                            ⚠ {team} — {v.overs}/{v.total} pts props leaning OVER
+                            {v.scaled ? " · team-total ceiling applied (scaled down)" : " · approaching team-total ceiling — treat with caution"}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
+                  {/* ── Results table ── */}
                   <div style={{ borderTop:"1px solid rgba(255,255,255,.06)" }}>
                     {["LOCK","ACTIONABLE","WATCH","SKIP"].map(tier => {
                       const rows = bulkProjResults.filter(r => r.grade === tier);
@@ -1770,9 +1773,9 @@ export default function NBAPropsModel() {
                       const tierColor = GRADE_COLOR[tier];
                       return (
                         <div key={tier}>
-                          <div style={{ padding:"6px 14px", background:`${tierColor}0d`,
-                            borderBottom:"1px solid rgba(255,255,255,.04)",
-                            fontFamily:"'Azeret Mono',monospace", fontSize:9, color: tierColor,
+                          <div style={{ padding:"8px 16px", background:`${tierColor}0d`,
+                            borderBottom:"1px solid rgba(255,255,255,.05)",
+                            fontFamily:"'Azeret Mono',monospace", fontSize:11, color: tierColor,
                             letterSpacing:".14em", fontWeight:700 }}>
                             {tier} ({rows.length})
                           </div>
@@ -1781,18 +1784,21 @@ export default function NBAPropsModel() {
                             const lift = r.base > 0 ? Math.abs((r.proj - r.base) / r.base * 100).toFixed(1) : "—";
                             const cvStr = r.cv != null ? r.cv.toFixed(2) : "—";
                             return (
-                              <div key={i} style={{ padding:"7px 16px", borderBottom:"1px solid rgba(255,255,255,.03)",
+                              <div key={i} style={{ padding:"9px 16px", borderBottom:"1px solid rgba(255,255,255,.035)",
                                 display:"flex", gap:12, alignItems:"center", flexWrap:"wrap",
-                                fontFamily:"'Azeret Mono',monospace", fontSize:11 }}>
-                                <span style={{ color:"#c8d4e8", minWidth:140 }}>
+                                fontFamily:"'Azeret Mono',monospace", fontSize:11,
+                                transition:"background .12s" }}
+                                onMouseEnter={e => e.currentTarget.style.background = `${tierColor}08`}
+                                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                                <span style={{ color:"#e8f0ff", minWidth:140, fontWeight:600 }}>
                                   {r.name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}
                                 </span>
-                                <span style={{ color:"#475569", fontSize:9, minWidth:36 }}>{r.team}</span>
-                                <span style={{ color:"#64748b", fontSize:9, minWidth:60 }}>{PROP_LABELS[r.propId]}</span>
+                                <span style={{ color:"#475569", fontSize:11, minWidth:36 }}>{r.team}</span>
+                                <span style={{ color:"#64748b", fontSize:11, minWidth:60 }}>{PROP_LABELS[r.propId]}</span>
                                 <span style={{ color: r.lean === "OVER" ? "#10b981" : "#ef4444", fontWeight:700, minWidth:48 }}>
                                   {r.lean}
                                 </span>
-                                <span style={{ padding:"2px 7px", borderRadius:3, fontSize:8, fontWeight:700, letterSpacing:".1em",
+                                <span style={{ padding:"3px 9px", borderRadius:99, fontSize:10, fontWeight:700, letterSpacing:".1em",
                                   background:`${tierColor}22`, border:`1px solid ${tierColor}55`, color: tierColor }}>
                                   {tier}
                                 </span>
@@ -1843,6 +1849,7 @@ export default function NBAPropsModel() {
                         </div>
                       );
                     })}
+                  </div>
                   </div>
                 )}
               </div>
@@ -1953,7 +1960,7 @@ export default function NBAPropsModel() {
             // legacy S/A/B/NO BET fallback (client-only result before server replies)
             confGrade === "S-TIER" ? "#a855f7" : confGrade === "A-TIER" ? "#10b981" : confGrade === "B-TIER" ? "#2563eb" : "#64748b";
           return (
-            <div className="rp">
+            <div className="rp" data-grade={confGrade}>
               <div className="rh">
                 <div>
                   <div className="rpn">{dname}</div>
@@ -2354,18 +2361,32 @@ export default function NBAPropsModel() {
                     </div>
                     <ResponsiveContainer width="100%" height={120}>
                       <BarChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: -28 }}>
-                        <XAxis dataKey="game" tick={{ fontSize: 9, fill: "#3a4a62", fontFamily: "Azeret Mono" }} axisLine={false} tickLine={false} />
-                        <YAxis domain={[0, maxVal]} tick={{ fontSize: 9, fill: "#2a3550" }} axisLine={false} tickLine={false} />
+                        <defs>
+                          <linearGradient id="barGradOver" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#10b981" stopOpacity={0.9} />
+                            <stop offset="100%" stopColor="#10b981" stopOpacity={0.35} />
+                          </linearGradient>
+                          <linearGradient id="barGradUnder" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#ef4444" stopOpacity={0.85} />
+                            <stop offset="100%" stopColor="#ef4444" stopOpacity={0.3} />
+                          </linearGradient>
+                          <linearGradient id="barGradNeutral" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.85} />
+                            <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.35} />
+                          </linearGradient>
+                        </defs>
+                        <XAxis dataKey="game" tick={{ fontSize: 10, fill: "#3a4a62", fontFamily: "Azeret Mono" }} axisLine={false} tickLine={false} />
+                        <YAxis domain={[0, maxVal]} tick={{ fontSize: 10, fill: "#2a3550" }} axisLine={false} tickLine={false} />
                         <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(255,255,255,.04)" }} />
                         {/* Book line */}
                         {l > 0 && <ReferenceLine y={l} stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 3" />}
                         {/* Final projection line */}
-                        <ReferenceLine y={finalProj} stroke="#2563eb" strokeWidth={1.5} strokeDasharray="6 3" />
-                        <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={40}>
+                        <ReferenceLine y={finalProj} stroke="#3b82f6" strokeWidth={2} strokeDasharray="6 3" />
+                        <Bar dataKey="value" radius={[5, 5, 0, 0]} maxBarSize={40}>
                           {chartData.map((entry, index) => (
                             <Cell
                               key={index}
-                              fill={l > 0 ? (entry.over ? "rgba(16,185,129,.7)" : "rgba(239,68,68,.6)") : "rgba(37,99,235,.65)"}
+                              fill={l > 0 ? (entry.over ? "url(#barGradOver)" : "url(#barGradUnder)") : "url(#barGradNeutral)"}
                             />
                           ))}
                         </Bar>
