@@ -23,6 +23,15 @@ export const S = `
     z-index:9999;
   }
 
+  /* ── ANIMATIONS ──────────────────────────────────────────────────────── */
+  @keyframes rp-in{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes num-pop{0%{opacity:0;transform:scale(.84)}60%{transform:scale(1.04)}100%{opacity:1;transform:scale(1)}}
+  @keyframes grade-pulse{0%,100%{box-shadow:inherit}50%{filter:brightness(1.15)}}
+  @keyframes pill-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  .rp{animation:rp-in .45s cubic-bezier(.22,1,.36,1);}
+  .proj-hero-num{animation:num-pop .55s cubic-bezier(.34,1.56,.64,1);}
+  .grade-badge-hero{animation:num-pop .65s cubic-bezier(.34,1.56,.64,1) .08s both;}
+
   /* ── ROOT ───────────────────────────────────────────────────────────── */
   .root{max-width:820px;margin:0 auto;padding:36px 18px 96px;position:relative;z-index:1;}
 

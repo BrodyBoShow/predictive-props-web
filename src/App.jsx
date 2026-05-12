@@ -1961,110 +1961,129 @@ export default function NBAPropsModel() {
             confGrade === "S-TIER" ? "#a855f7" : confGrade === "A-TIER" ? "#10b981" : confGrade === "B-TIER" ? "#2563eb" : "#64748b";
           return (
             <div className="rp" data-grade={confGrade}>
-              <div className="rh">
-                <div>
-                  <div className="rpn">{dname}</div>
-                  <div className="rpm">{pt} vs {ot} · {g.title} · {pr.label}</div>
-                  <div className="rsrc">SOURCES: {nbaApiStatus === "live" ? "✓ NBA.COM LIVE" : "◎ STATIC DB"} · NBASTUFFER.COM · SPORTRADAR</div>
-                </div>
-                <div className={`vb ${verdict}`} style={{ borderColor: `${confGradeColor}80`, background: `${confGradeColor}14` }}>
-                  <div className={`vt ${verdict}`} style={{ color: confGradeColor }}>{verdict.toUpperCase()}</div>
-                  <div className="vc" style={{ color: confGradeColor, fontWeight: 700, letterSpacing: ".15em" }}>{confGrade}</div>
-                </div>
-              </div>
+              {/* ── HERO — slot-machine reveal ───────────────────────── */}
+              <div style={{ marginBottom: 22 }}>
 
-              {/* ── CONFIDENCE TERMINAL — Multi-Variate Engine Output ────────── */}
-              <div style={{ background: "#020409", border: `1px solid ${confGradeColor}55`, borderRadius: 10, padding: "14px 18px", marginBottom: 14, fontFamily: "'Azeret Mono', monospace" }}>
-                <div style={{ fontSize: 9, letterSpacing: ".2em", color: confGradeColor, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-                  ▶ PROP EDGE ENGINE v3 — MULTI-VARIATE CORRELATION OUTPUT
-                  {nbaApiStatus === "live" && (
-                    <span style={{ color: serverCorr ? "#10b981" : "#f59e0b", marginLeft: "auto" }}>
-                      {serverCorr ? "● SERVER CORR LIVE" : "⟳ COMPUTING SERVER LAYER..."}
-                    </span>
-                  )}
+                {/* Player + live badge */}
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:18, paddingBottom:16, borderBottom:"1px solid rgba(255,255,255,.06)" }}>
+                  <div>
+                    <div className="rpn">{dname}</div>
+                    <div className="rpm">{pt} vs {ot} · {g.title} · {pr.label}</div>
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
+                    <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:10, color:"#10b981", background:"rgba(16,185,129,.08)", border:"1px solid rgba(16,185,129,.22)", borderRadius:99, padding:"4px 12px" }}>
+                      {nbaApiStatus === "live" ? "● NBA.COM LIVE" : "◎ STATIC DB"}
+                    </div>
+                    {serverCorr && <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:10, color:"#6366f1", background:"rgba(99,102,241,.08)", border:"1px solid rgba(99,102,241,.2)", borderRadius:99, padding:"4px 12px" }}>⚡ SERVER CORR LIVE</div>}
+                  </div>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "4px 0", fontSize: 11, lineHeight: 1.85 }}>
-                  <span style={{ color: "#2a3550" }}>PLAYER  │</span>
-                  <span style={{ color: "#e8f0ff" }}>{dname} <span style={{ color: "#2a3550" }}>│</span> {pt} vs {ot} <span style={{ color: "#2a3550" }}>│</span> {pr.label.toUpperCase()}</span>
-                  <span style={{ color: "#2a3550" }}>FINAL   │</span>
-                  <span>
-                    <span style={{ color: "#2563eb", fontWeight: 700, fontSize: 16 }}>{finalProj} {pr.label3}</span>
-                    <span style={{ color: "#2a3550", fontSize: 9, marginLeft: 10 }}>
-                      {serverCorr ? `14-factor server output · baseline ${serverCorr.base}` : `client estimate · awaiting server`}
-                    </span>
-                  </span>
-                  <span style={{ color: "#2a3550" }}>BOOK    │</span>
-                  <span style={{ color: "#c8d4e8" }}>{l} O/U  <span style={{ color: finalEdge > 0 ? "#10b981" : "#ef4444", marginLeft: 8 }}>{finalEdge > 0 ? "▲" : "▼"} {Math.abs(finalEdge)} {pr.label3} {finalVerdict.toUpperCase()}</span></span>
-                  <span style={{ color: "#2a3550" }}>EV EDGE │</span>
-                  <span style={{ color: finalEvPct > 0 ? "#10b981" : "#ef4444", fontWeight: 700 }}>{finalEvPct > 0 ? "+" : ""}{finalEvPct}%</span>
-                  {serverCorr?.confidenceBand && (() => {
-                    const cb = serverCorr.confidenceBand;
-                    const trustColor = cb.trust_score >= 70 ? "#10b981" : cb.trust_score >= 40 ? "#f59e0b" : "#ef4444";
-                    const straddles = l > 0 && cb.floor <= l && cb.ceiling >= l;
-                    const isXgb = cb.source === "xgb_quantile";
-                    // Visual range bar: position floor, proj dot, ceiling, line tick
-                    const barMin  = Math.max(0, cb.floor - 1);
-                    const barMax  = cb.ceiling + 1;
-                    const barSpan = barMax - barMin || 1;
-                    const pctOf   = v => `${Math.min(100, Math.max(0, ((v - barMin) / barSpan) * 100)).toFixed(1)}%`;
-                    return (
-                      <>
-                        <span style={{ color: "#2a3550" }}>BAND    │</span>
-                        <span style={{ color: "#c8d4e8", width: "100%", display: "flex", flexDirection: "column", gap: 3 }}>
-                          {/* Range bar */}
-                          <span style={{ position: "relative", height: 6, background: "rgba(99,102,241,.12)", borderRadius: 3, display: "block", width: 200, flexShrink: 0, border: "1px solid rgba(99,102,241,.2)" }}>
-                            {/* Filled band region */}
-                            <span style={{ position: "absolute", left: pctOf(cb.floor), right: `${(100 - parseFloat(pctOf(cb.ceiling))).toFixed(1)}%`, top: 0, bottom: 0, background: "rgba(99,102,241,.25)", borderRadius: 2 }} />
-                            {/* Proj dot */}
-                            <span style={{ position: "absolute", left: pctOf(finalProj ?? cb.floor), top: -2, width: 10, height: 10, borderRadius: "50%", background: "#6366f1", transform: "translateX(-50%)", border: "2px solid #1e293b" }} />
-                            {/* Line tick */}
-                            {l > 0 && <span style={{ position: "absolute", left: pctOf(l), top: -3, width: 2, height: 12, background: straddles ? "#f59e0b" : "#ef4444", borderRadius: 1 }} />}
-                          </span>
-                          {/* Labels */}
-                          <span style={{ fontSize: 9, color: "#64748b", display: "flex", gap: 8 }}>
-                            <span style={{ color: "#94a3b8" }}>{cb.floor} floor</span>
-                            <span style={{ color: "#c8d4e8" }}>●&nbsp;{(finalProj ?? "?").toFixed?.(1)} proj</span>
-                            {l > 0 && <span style={{ color: straddles ? "#f59e0b" : "#ef4444" }}>│ {l} line{straddles ? " ⚠ straddles" : ""}</span>}
-                            <span style={{ color: "#94a3b8" }}>{cb.ceiling} ceil</span>
-                            {cb.trust_score != null && <span style={{ color: trustColor, fontWeight: 700 }}>TRUST {cb.trust_score}</span>}
-                            <span style={{ color: "#334155" }}>{isXgb ? "⚡ XGB q25/q75" : `σ ${cb.std} · n ${cb.n}`}</span>
-                          </span>
+
+                {/* Big number + grade — the slot machine moment */}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr auto", gap:16, alignItems:"center", marginBottom:18 }}>
+                  <div>
+                    {/* Projection number */}
+                    <div style={{ display:"flex", alignItems:"baseline", gap:12, marginBottom:12 }}>
+                      <div className="proj-hero-num" style={{ fontSize:76, fontWeight:800, fontFamily:"'Azeret Mono',monospace", color:"#e8f0ff", lineHeight:1, letterSpacing:"-.04em" }}>
+                        {finalProj}
+                      </div>
+                      <div style={{ paddingBottom:6 }}>
+                        <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:20, color:"#3b82f6", fontWeight:700, lineHeight:1 }}>{pr.label3}</div>
+                        <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:10, color:"#2a3a52", letterSpacing:".12em", marginTop:4 }}>
+                          {serverCorr ? "14-FACTOR MODEL" : "CLIENT ESTIMATE"}
+                        </div>
+                      </div>
+                    </div>
+                    {/* Verdict + EV row */}
+                    <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                      <div style={{ background:`${finalEc}1e`, border:`2px solid ${finalEc}`, borderRadius:10, padding:"8px 18px", display:"inline-flex", alignItems:"center", gap:10 }}>
+                        <span style={{ color:finalEc, fontWeight:900, fontSize:20, fontFamily:"'Azeret Mono',monospace", letterSpacing:".1em" }}>{finalVerdict.toUpperCase()}</span>
+                        <span style={{ color:finalEc, fontFamily:"'Azeret Mono',monospace", fontSize:14, opacity:.9 }}>
+                          {finalEdge > 0 ? "▲" : "▼"} {Math.abs(finalEdge)} {pr.label3}
                         </span>
-                      </>
-                    );
-                  })()}
-                  <span style={{ color: "#2a3550" }}>GRADE   │</span>
-                  <span>
-                    <span style={{ background: confGradeColor, color: "#fff", padding: "2px 10px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: ".12em" }}>{confGrade}</span>
-                    <span style={{ color: "#2a3550", fontSize: 9, marginLeft: 10 }}>
-                      {confGrade === "LOCK"       ? "EV>10% · CV<0.30 · sample≥3 · model lift<10%" :
-                       confGrade === "ACTIONABLE" ? "EV>7% · CV<0.40 · model lift<15%" :
-                       confGrade === "WATCH"      ? "EV>4% · model lift<20%" :
-                       confGrade === "SKIP"       ? "model trust insufficient — skip" :
-                       confGrade === "S-TIER"     ? "EV > 12%" :
-                       confGrade === "A-TIER"     ? "EV > 8%" :
-                       confGrade === "B-TIER"     ? "EV > 4%" : "EV ≤ 4% — model edge insufficient"}
-                    </span>
-                  </span>
-                  {/* ¼ Kelly stake recommendation */}
+                      </div>
+                      <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:20, fontWeight:700, color:finalEvPct > 0 ? "#10b981" : "#ef4444" }}>
+                        {finalEvPct > 0 ? "+" : ""}{finalEvPct}%
+                        <span style={{ fontSize:11, color:"#2a3550", marginLeft:5, fontWeight:400 }}>EV</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* GRADE badge */}
+                  <div className="grade-badge-hero" style={{ background:`${confGradeColor}18`, border:`2px solid ${confGradeColor}`, borderTop:`3px solid ${confGradeColor}`, borderRadius:16, padding:"18px 22px", textAlign:"center", minWidth:118, boxShadow:`0 0 48px ${confGradeColor}28,0 8px 24px rgba(0,0,0,.25)` }}>
+                    <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, letterSpacing:".25em", color:confGradeColor, marginBottom:6, opacity:.65 }}>GRADE</div>
+                    <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:30, fontWeight:900, color:confGradeColor, lineHeight:1, letterSpacing:".04em" }}>{confGrade}</div>
+                    {l > 0 && <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:10, color:"#3a4a62", marginTop:8 }}>O/U {l}</div>}
+                  </div>
+                </div>
+
+                {/* Quick stat pills */}
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:14 }}>
+                  {[
+                    { label:"BOOK",    val: l || "—",               color:"#94a3b8" },
+                    { label:"PO AVG",  val: proj.propPO ?? "—",     color:"#60a5fa" },
+                    { label:"L5 AVG",  val: proj.propRecent ?? "—", color:"#f59e0b" },
+                    { label:"BLENDED", val: proj.blended ?? "—",    color:"#94a3b8" },
+                    ...(serverCorr?.confidenceBand ? [
+                      { label:"FLOOR",   val: serverCorr.confidenceBand.floor,    color:"#475569" },
+                      { label:"CEILING", val: serverCorr.confidenceBand.ceiling,  color:"#475569" },
+                      ...(serverCorr.confidenceBand.trust_score != null ? [{
+                        label:"TRUST",
+                        val: serverCorr.confidenceBand.trust_score,
+                        color: serverCorr.confidenceBand.trust_score >= 70 ? "#10b981" : serverCorr.confidenceBand.trust_score >= 40 ? "#f59e0b" : "#ef4444"
+                      }] : []),
+                    ] : []),
+                  ].map(({ label, val, color }) => (
+                    <div key={label} style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.09)", borderRadius:10, padding:"8px 14px", textAlign:"center", minWidth:66 }}>
+                      <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:17, fontWeight:700, color, lineHeight:1 }}>{val}</div>
+                      <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, color:"#2a3550", marginTop:4, letterSpacing:".12em" }}>{label}</div>
+                    </div>
+                  ))}
+                  {/* ¼ Kelly */}
                   {l > 0 && finalEvPct !== 0 && (() => {
                     const p_win = Math.min(0.85, Math.max(0.15, (finalEvPct / 100 + 1) / 2));
-                    const b     = Math.abs(finalEvPct) / 100;
-                    const k     = b > 0 ? Math.max(0, (b * p_win - (1 - p_win)) / b) : 0;
-                    const qk    = +(k * 0.25 * 100).toFixed(1);
+                    const b = Math.abs(finalEvPct) / 100;
+                    const k = b > 0 ? Math.max(0, (b * p_win - (1 - p_win)) / b) : 0;
+                    const qk = +(k * 0.25 * 100).toFixed(1);
                     if (qk <= 0) return null;
                     return (
-                      <>
-                        <span style={{ color: "#2a3550" }}>STAKE   │</span>
-                        <span style={{ color: "#818cf8", fontSize: 10 }}>
-                          ¼ Kelly: <span style={{ fontWeight: 700 }}>{qk}% bankroll</span>
-                          <span style={{ color: "#334155", marginLeft: 8 }}>({(k * 100).toFixed(1)}% full Kelly — quarter-Kelly recommended)</span>
-                        </span>
-                      </>
+                      <div style={{ background:"rgba(129,140,248,.09)", border:"1px solid rgba(129,140,248,.3)", borderRadius:10, padding:"8px 14px", textAlign:"center", minWidth:66 }}>
+                        <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:17, fontWeight:700, color:"#818cf8", lineHeight:1 }}>{qk}%</div>
+                        <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, color:"#2a3550", marginTop:4, letterSpacing:".12em" }}>¼ KELLY</div>
+                      </div>
                     );
                   })()}
                 </div>
 
+                {/* Confidence band visual */}
+                {serverCorr?.confidenceBand && (() => {
+                  const cb = serverCorr.confidenceBand;
+                  const barMin = Math.max(0, cb.floor - 1);
+                  const barMax = cb.ceiling + 1;
+                  const barSpan = barMax - barMin || 1;
+                  const pctOf = v => `${Math.min(100,Math.max(0,((v-barMin)/barSpan)*100)).toFixed(1)}%`;
+                  const straddles = l > 0 && cb.floor <= l && cb.ceiling >= l;
+                  return (
+                    <div style={{ background:"rgba(99,102,241,.07)", border:"1px solid rgba(99,102,241,.22)", borderRadius:12, padding:"12px 16px" }}>
+                      <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:10, letterSpacing:".18em", color:"#6366f1", marginBottom:10, display:"flex", gap:10, flexWrap:"wrap" }}>
+                        <span>⚡ {cb.source === "xgb_quantile" ? "XGB QUANTILE BAND" : `BAND · σ${cb.std} · n${cb.n}`}</span>
+                        {cb.trust_score != null && <span style={{ color: cb.trust_score >= 70 ? "#10b981" : cb.trust_score >= 40 ? "#f59e0b" : "#ef4444", fontWeight:700 }}>TRUST {cb.trust_score}</span>}
+                      </div>
+                      <div style={{ position:"relative", height:10, background:"rgba(99,102,241,.08)", borderRadius:5, border:"1px solid rgba(99,102,241,.18)", marginBottom:10 }}>
+                        <div style={{ position:"absolute", left:pctOf(cb.floor), right:`${(100-parseFloat(pctOf(cb.ceiling))).toFixed(1)}%`, top:0, bottom:0, background:"rgba(99,102,241,.28)", borderRadius:4 }} />
+                        <div style={{ position:"absolute", left:pctOf(finalProj ?? cb.floor), top:-4, width:18, height:18, borderRadius:"50%", background:"#6366f1", transform:"translateX(-50%)", border:"2px solid #060b18", boxShadow:"0 0 10px rgba(99,102,241,.75)" }} />
+                        {l > 0 && <div style={{ position:"absolute", left:pctOf(l), top:-5, width:2, height:20, background:straddles?"#f59e0b":"#ef4444", borderRadius:1, boxShadow:`0 0 8px ${straddles?"#f59e0b":"#ef4444"}` }} />}
+                      </div>
+                      <div style={{ display:"flex", justifyContent:"space-between", fontFamily:"'Azeret Mono',monospace", fontSize:11 }}>
+                        <span style={{ color:"#6366f1" }}>{cb.floor} floor</span>
+                        <span style={{ color:"#c8d4e8", fontWeight:600 }}>
+                          {(finalProj??"?").toFixed?.(1)} proj
+                          {l > 0 && <span style={{ color:straddles?"#f59e0b":"#ef4444", marginLeft:8 }}>│ {l} line{straddles?" ⚠":""}</span>}
+                        </span>
+                        <span style={{ color:"#6366f1" }}>{cb.ceiling} ceil</span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* ── Record Actual — log real outcome to calibrate future projections ── */}
@@ -2396,41 +2415,8 @@ export default function NBAPropsModel() {
                 );
               })()}
 
-              {/* ── BIG RESULT — Final projection + EV% always prominent ── */}
-              <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
-                {/* FINAL PROJECTION */}
-                <div style={{ flex: "2 1 180px", background: "rgba(37,99,235,.08)", border: "2px solid rgba(37,99,235,.4)", borderRadius: 14, padding: "20px 24px", textAlign: "center" }}>
-                  <div style={{ fontSize: 9, letterSpacing: ".18em", color: "#2563eb", marginBottom: 6, fontFamily: "'Azeret Mono',monospace" }}>
-                    FINAL PROJECTION {serverCorr ? "· SERVER CORR" : "· CLIENT EST"}
-                  </div>
-                  <div style={{ fontSize: 60, fontWeight: 800, color: "#2563eb", lineHeight: 1, marginBottom: 6, fontFamily: "'Azeret Mono',monospace" }}>
-                    {finalProj}
-                  </div>
-                  <div style={{ fontSize: 13, color: "#64748b" }}>{pr.label3} · {serverCorr ? "14-factor correlated output" : "awaiting server"}</div>
-                </div>
-
-                {/* VERDICT + EV% stacked */}
-                <div style={{ flex: "1 1 120px", display: "flex", flexDirection: "column", gap: 8 }}>
-                  <div style={{ flex: 1, background: `${finalEc}12`, border: `1.5px solid ${finalEc}55`, borderRadius: 12, padding: "14px 12px", textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: finalEc, fontFamily: "'Azeret Mono',monospace" }}>{finalVerdict.toUpperCase()}</div>
-                    <div style={{ fontSize: 12, color: finalEc, opacity: 0.8, marginTop: 2 }}>{finalEdge > 0 ? "+" : ""}{finalEdge} {pr.label3}</div>
-                  </div>
-                  <div style={{ flex: 1, background: `${finalEvPct > 0 ? "#10b981" : "#ef4444"}10`, border: `1.5px solid ${finalEvPct > 0 ? "#10b981" : "#ef4444"}45`, borderRadius: 12, padding: "12px", textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                    <div style={{ fontSize: 9, letterSpacing: ".1em", color: "#64748b", marginBottom: 4, fontFamily: "'Azeret Mono',monospace" }}>EXPECTED VALUE</div>
-                    <div style={{ fontSize: 30, fontWeight: 800, color: finalEvPct > 0 ? "#10b981" : "#ef4444", fontFamily: "'Azeret Mono',monospace" }}>{finalEvPct > 0 ? "+" : ""}{finalEvPct}%</div>
-                  </div>
-                </div>
-
-                {/* BOOK LINE */}
-                <div style={{ flex: "1 1 100px", background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 12, padding: "20px 16px", textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                  <div style={{ fontSize: 9, letterSpacing: ".14em", color: "#3a4a62", marginBottom: 8, fontFamily: "'Azeret Mono',monospace" }}>BOOK LINE</div>
-                  <div style={{ fontSize: 42, fontWeight: 700, color: "#c8d4e8", fontFamily: "'Azeret Mono',monospace" }}>{l}</div>
-                  <div style={{ fontSize: 11, color: "#3a4a62", marginTop: 4 }}>{pr.short} O/U</div>
-                </div>
-              </div>
-
-              {/* Edge confidence bar */}
-              <div className="et" style={{ marginBottom: 14 }}><div className="ef" style={{ width: `${finalEpct * 100}%`, background: finalEc }} /></div>
+              {/* Edge bar */}
+              <div className="et" style={{ marginBottom: 14 }}><div className="ef" style={{ width:`${finalEpct*100}%`, background:finalEc }} /></div>
 
               {/* ── MONTE CARLO — 10K bootstrap simulations from L5 distribution ── */}
               {(() => {
@@ -2550,7 +2536,7 @@ export default function NBAPropsModel() {
                 );
               })()}
 
-              {/* ── GRADE BANNER — prominent grade display with full scale legend ── */}
+              {/* ── GRADE REASON STRIP ───────────────────────────────── */}
               {(() => {
                 const cb = serverCorr?.confidenceBand;
                 const baseline = serverCorr?.base ?? proj.blended;
@@ -2558,48 +2544,17 @@ export default function NBAPropsModel() {
                 const gradeReason =
                   confGrade === "LOCK"       ? `Strong edge (+${Math.abs(finalEvPct).toFixed(1)}%) — tight L5 variance, healthy sample, model close to baseline.` :
                   confGrade === "ACTIONABLE" ? `Solid edge (+${Math.abs(finalEvPct).toFixed(1)}%) with acceptable variance — good single-unit play.` :
-                  confGrade === "WATCH"      ? `Edge exists but ${cb && cb.cv >= 0.30 ? `L5 volatility is high (CV ${cb.cv})` : modelLift >= 0.15 ? `model lifted ${(modelLift*100).toFixed(0)}% off baseline (aggressive)` : "trust signals are mixed"} — small unit only.` :
-                  confGrade === "SKIP"       ? `Model trust insufficient — ${Math.abs(finalEvPct) < 4 ? "edge below 4%" : modelLift >= 0.20 ? `model lifted ${(modelLift*100).toFixed(0)}% off its own baseline (likely reaching)` : "filters blocked higher tier"}.` :
-                  // legacy fallback
-                  "EV-based grade (server confidence band unavailable).";
-                const tiers = [
-                  { name: "LOCK",       color: "#a855f7", crit: "EV>10% · CV<0.30 · gp≥3 · lift<10%", short: "Bet hard." },
-                  { name: "ACTIONABLE", color: "#10b981", crit: "EV>7% · CV<0.40 · lift<15%",         short: "Single unit." },
-                  { name: "WATCH",      color: "#2563eb", crit: "EV>4% · lift<20%",                    short: "Small unit / monitor." },
-                  { name: "SKIP",       color: "#64748b", crit: "trust insufficient",                   short: "Don't bet." },
-                ];
+                  confGrade === "WATCH"      ? `Edge exists but ${cb && cb.cv >= 0.30 ? `L5 volatility high (CV ${cb.cv})` : modelLift >= 0.15 ? `model lifted ${(modelLift*100).toFixed(0)}% off baseline` : "trust signals mixed"} — small unit only.` :
+                  confGrade === "SKIP"       ? `Model trust insufficient — ${Math.abs(finalEvPct) < 4 ? "edge below 4%" : `model lifted ${(modelLift*100).toFixed(0)}% off baseline`}.` :
+                  "EV-based grade.";
                 return (
-                  <div style={{ marginBottom: 14, background: `${confGradeColor}0d`, border: `2px solid ${confGradeColor}66`, borderRadius: 14, padding: "18px 20px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 14, flexWrap: "wrap" }}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                        <div style={{ fontSize: 9, letterSpacing: ".22em", color: "#64748b", fontFamily: "'Azeret Mono',monospace" }}>MODEL GRADE</div>
-                        <div style={{ fontSize: 38, fontWeight: 800, color: confGradeColor, fontFamily: "'Azeret Mono',monospace", letterSpacing: ".08em", lineHeight: 1 }}>{confGrade}</div>
-                      </div>
-                      <div style={{ flex: 1, minWidth: 220, fontSize: 12, color: "#c8d4e8", lineHeight: 1.5 }}>
-                        {gradeReason}
-                      </div>
-                    </div>
-                    {/* Grade scale legend — all 4 tiers, current one highlighted */}
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-                      {tiers.map(t => {
-                        const active = confGrade === t.name;
-                        return (
-                          <div key={t.name} style={{
-                            background: active ? `${t.color}22` : "rgba(255,255,255,.02)",
-                            border: `1px solid ${active ? t.color : "rgba(255,255,255,.06)"}`,
-                            borderRadius: 8, padding: "8px 10px",
-                            opacity: active ? 1 : 0.55,
-                            transition: "all .15s",
-                          }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: t.color }} />
-                              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".12em", color: t.color, fontFamily: "'Azeret Mono',monospace" }}>{t.name}</div>
-                            </div>
-                            <div style={{ fontSize: 9, color: "#64748b", fontFamily: "'Azeret Mono',monospace", lineHeight: 1.4, marginBottom: 3 }}>{t.crit}</div>
-                            <div style={{ fontSize: 10, color: active ? "#c8d4e8" : "#475569", fontWeight: active ? 600 : 400 }}>{t.short}</div>
-                          </div>
-                        );
-                      })}
+                  <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14, padding:"10px 16px", background:`${confGradeColor}0d`, border:`1px solid ${confGradeColor}44`, borderRadius:10, flexWrap:"wrap" }}>
+                    <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:11, fontWeight:800, color:confGradeColor, letterSpacing:".1em", flexShrink:0 }}>{confGrade}</div>
+                    <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:11, color:"#94a3b8", flex:1 }}>{gradeReason}</div>
+                    <div style={{ display:"flex", gap:8 }}>
+                      {[{n:"LOCK",c:"#a855f7"},{n:"ACT",c:"#10b981"},{n:"WATCH",c:"#2563eb"},{n:"SKIP",c:"#64748b"}].map(t => (
+                        <div key={t.n} style={{ width:8, height:8, borderRadius:"50%", background:t.c, opacity: confGrade.startsWith(t.n.substring(0,3)) ? 1 : 0.25 }} />
+                      ))}
                     </div>
                   </div>
                 );
