@@ -825,8 +825,15 @@ export default function NBAPropsModel() {
       const gameLogFull = recent?.gameLogFull || recent?.gameLog || [];
       const gameLog = recent?.gameLog || [];
       const l5Key = L5_KEY[task.propId];
-      const l5vals = l5Key ? gameLog.map(g => g[l5Key] || 0) : [];
-      const l5avg = l5vals.length ? +(l5vals.reduce((a, b) => a + b, 0) / l5vals.length).toFixed(2) : null;
+      // Use the server-aggregated recent stat (same source as single-player's prop.statKey(recentStats))
+      // to avoid null/DNP entries in per-game log dragging the average down
+      const L5_AGG_KEY = { points: "ppg", rebounds: "rpg", assists: "apg", steals: "spg", blocks: "bpg", turnovers: "topg" };
+      const l5AggKey = L5_AGG_KEY[task.propId];
+      const l5avg = l5AggKey && recent?.recent?.[l5AggKey] != null
+        ? +Number(recent.recent[l5AggKey]).toFixed(2)
+        : null;
+      // Per-game values still used for variance band; filter null/DNP entries
+      const l5vals = l5Key ? gameLog.map(g => g[l5Key] ?? 0).filter(v => v > 0 || gameLog.length <= 3) : [];
       const opp = task.team === game.home ? game.away : game.home;
       const priorResiduals = getResiduals(task.name, task.propId).map(r => ({ projected: r.projected, actual: r.actual, ctx: r.ctx || null }));
       try {
