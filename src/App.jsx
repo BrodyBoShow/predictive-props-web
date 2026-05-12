@@ -776,7 +776,7 @@ export default function NBAPropsModel() {
       fetch(`${API_BASE}/recent/${player.pid}`).then(r => r.json()).catch(() => null),
       fetch(`${API_BASE}/vs-opponent/${player.pid}/${opp}`).then(r => r.json()).catch(() => null),
     ]).then(([recentData, vsData]) => {
-      if (recentData?.success) setRecentStats(recentData.recent ? { ...recentData.recent, _gp: recentData.gp, _gameLog: recentData.gameLog || [] } : null);
+      if (recentData?.success) setRecentStats(recentData.recent ? { ...recentData.recent, _gp: recentData.gp, _gameLog: recentData.gameLog || [], _gameLogFull: recentData.gameLogFull || [] } : null);
       if (vsData?.success) setVsOpponentStats(vsData.vsOpponent ? { ...vsData.vsOpponent, gp: vsData.gp, source: vsData.source } : null);
     });
   }, [pkey, gid, effectiveDB]);
@@ -822,6 +822,7 @@ export default function NBAPropsModel() {
         } catch { recentCache[task.name] = null; }
       }
       const recent = recentCache[task.name];
+      const gameLogFull = recent?.gameLogFull || recent?.gameLog || [];
       const gameLog = recent?.gameLog || [];
       const l5Key = L5_KEY[task.propId];
       const l5vals = l5Key ? gameLog.map(g => g[l5Key] || 0) : [];
@@ -837,6 +838,7 @@ export default function NBAPropsModel() {
             l5_avg: l5avg, l5_min: recent?.recent?.min || null, l5_stat_values: l5vals,
             high_leverage: /game\s*7|elimination|finals/i.test(game.title || ""),
             prior_residuals: priorResiduals,
+            game_log_context: gameLogFull,
           }),
         });
         const data = await resp.json();
@@ -1228,6 +1230,8 @@ export default function NBAPropsModel() {
             high_leverage:  /game\s*7|elimination|finals/i.test(game?.title || ""),
             // ── Residual calibration — historical projection/actual pairs from localStorage ──
             prior_residuals: getResiduals(player.key, prop.id),
+            // ── KNN Monte Carlo — full game log for contextual neighbor selection ──
+            game_log_context: recentStats?._gameLogFull || recentStats?._gameLog || [],
             // ── Current game context for bucket-aware Adj 14 (server matches similar samples) ──
             current_ctx: buildResidualCtx({
               isHome, gameTitle: game?.title, restDays,
