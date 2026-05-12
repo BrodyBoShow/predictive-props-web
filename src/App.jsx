@@ -309,6 +309,7 @@ export default function NBAPropsModel() {
   // ── Bulk projection panel ──
   const [showBulk, setShowBulk] = useState(false);
   const [bulkLines, setBulkLines] = useState({});        // { playerName: { propId: "line" } }
+  const [bulkLinePulledAt, setBulkLinePulledAt] = useState({});  // { playerName: { propId: timestamp } }
   const [bulkProjResults, setBulkProjResults] = useState([]);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
@@ -856,11 +857,23 @@ export default function NBAPropsModel() {
           const cv   = data.confidence_band?.cv ?? null;
           const poGp = data.data_quality?.po_gp ?? 0;
           const grade = computeGrade({ evPct: ev, cv, poGp, projection: proj, baseline: base });
+          // Quarter-Kelly stake recommendation
+          const qKelly = (() => {
+            if (!ev || !task.line) return null;
+            const p_win = Math.min(0.85, Math.max(0.15, (ev / 100 + 1) / 2));
+            const b     = Math.abs(ev) / 100;
+            const k     = b > 0 ? Math.max(0, (b * p_win - (1 - p_win)) / b) : 0;
+            return +(k * 0.25 * 100).toFixed(1);
+          })();
+          const pulledAt = bulkLinePulledAt[task.name]?.[task.propId] ?? null;
           results.push({
             name: task.name, team: task.team, propId: task.propId, line: task.line,
             proj, base, ev, cv, grade,
             lean: proj > task.line ? "OVER" : "UNDER",
             band: data.confidence_band ?? null,
+            gameCtx: data.game_context ?? null,
+            qKelly,
+            pulledAt,
           });
         }
       } catch {}
@@ -898,14 +911,18 @@ export default function NBAPropsModel() {
     setBulkOddsStatus("Fetching live lines…");
     let filled = 0, missing = 0;
     const updates = {};
+    const timestamps = {};
+    const now = Date.now();
     for (const player of bulkRosterPlayers) {
       updates[player.name] = {};
+      timestamps[player.name] = {};
       for (const propId of bulkProps) {
         try {
           const r = await fetch(`${API_BASE}/live-line/${encodeURIComponent(player.name)}/${propId}`);
           const d = await r.json();
           if (r.ok && d.consensus_line != null) {
             updates[player.name][propId] = String(d.consensus_line);
+            timestamps[player.name][propId] = now;
             filled++;
           } else {
             missing++;
@@ -917,6 +934,13 @@ export default function NBAPropsModel() {
       const next = { ...prev };
       for (const [name, props] of Object.entries(updates)) {
         next[name] = { ...(next[name] || {}), ...props };
+      }
+      return next;
+    });
+    setBulkLinePulledAt(prev => {
+      const next = { ...prev };
+      for (const [name, ts] of Object.entries(timestamps)) {
+        next[name] = { ...(next[name] || {}), ...ts };
       }
       return next;
     });
@@ -1682,6 +1706,39 @@ export default function NBAPropsModel() {
                   )}
                 </div>
 
+                {/* ── Game context strip (Vegas totals + spreads) ── */}
+                {bulkProjResults.length > 0 && (() => {
+                  const gameCtxMap = {};
+                  bulkProjResults.forEach(r => {
+                    if (r.gameCtx?.total && r.team) {
+                      const key = r.team;
+                      if (!gameCtxMap[key]) gameCtxMap[key] = { ...r.gameCtx, team: r.team };
+                    }
+                  });
+                  const games = Object.values(gameCtxMap);
+                  if (!games.length) return null;
+                  const uniqueGames = [];
+                  const seen = new Set();
+                  games.forEach(g => {
+                    const k = [g.total, g.spread].join("_");
+                    if (!seen.has(k)) { seen.add(k); uniqueGames.push(g); }
+                  });
+                  return (
+                    <div style={{ padding:"6px 14px", borderTop:"1px solid rgba(99,102,241,.1)", background:"rgba(99,102,241,.03)", display:"flex", gap:16, flexWrap:"wrap" }}>
+                      {uniqueGames.map((g, i) => (
+                        <span key={i} style={{ fontFamily:"'Azeret Mono',monospace", fontSize:8, color:"#64748b" }}>
+                          <span style={{ color:"#475569" }}>Total </span>
+                          <span style={{ color:"#c8d4e8", fontWeight:700 }}>{g.total}</span>
+                          {g.spread != null && <>
+                            <span style={{ color:"#475569", marginLeft:6 }}>Spread </span>
+                            <span style={{ color: g.spread < 0 ? "#10b981" : "#f59e0b", fontWeight:700 }}>{g.spread > 0 ? "+" : ""}{g.spread}</span>
+                          </>}
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
+
                 {/* ── Team-ceiling warning banners ── */}
                 {bulkProjResults.length > 0 && (() => {
                   const ptsByTeam = {};
@@ -1739,7 +1796,13 @@ export default function NBAPropsModel() {
                                   background:`${tierColor}22`, border:`1px solid ${tierColor}55`, color: tierColor }}>
                                   {tier}
                                 </span>
-                                <span style={{ color:"#475569" }}>line <span style={{ color:"#94a3b8" }}>{r.line}</span></span>
+                                <span style={{ color:"#475569" }}>line <span style={{ color:"#94a3b8" }}>{r.line}</span>{(() => {
+                                  if (!r.pulledAt) return null;
+                                  const ageMin = Math.floor((Date.now() - r.pulledAt) / 60000);
+                                  const stale  = ageMin > 15;
+                                  const warn   = ageMin > 8;
+                                  return <span style={{ fontSize:7, marginLeft:3, color: stale ? "#ef4444" : warn ? "#f59e0b" : "#334155" }} title={`Line pulled ${ageMin}m ago`}>{ageMin}m</span>;
+                                })()}</span>
                                 <span style={{ color:"#c8d4e8" }}>proj <span style={{ fontWeight:700 }}>{r.proj.toFixed(1)}</span>{r.teamOverWarn && <span style={{ color:"#f59e0b", fontSize:8, marginLeft:2 }} title="High team OVER rate — verify totals">⚠</span>}</span>
                                 {r.band && (() => {
                                   const cb = r.band;
@@ -1764,6 +1827,9 @@ export default function NBAPropsModel() {
                                 <span style={{ color: evColor, fontWeight:700 }}>EV {r.ev >= 0 ? "+" : ""}{r.ev}%</span>
                                 <span style={{ color:"#475569" }}>CV {cvStr}</span>
                                 <span style={{ color:"#334155", fontSize:9 }}>lift {lift}%</span>
+                                {r.qKelly != null && r.qKelly > 0 && (
+                                  <span style={{ fontSize:7, color:"#818cf8" }} title="¼ Kelly bankroll stake">¼K {r.qKelly}%</span>
+                                )}
                                 <button
                                   onClick={() => { selGame(gid); setPname(r.name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")); setPkey(r.name); setShowBulk(false); }}
                                   style={{ marginLeft:"auto", padding:"3px 10px", background:"rgba(99,102,241,.1)",
@@ -1973,6 +2039,23 @@ export default function NBAPropsModel() {
                        confGrade === "B-TIER"     ? "EV > 4%" : "EV ≤ 4% — model edge insufficient"}
                     </span>
                   </span>
+                  {/* ¼ Kelly stake recommendation */}
+                  {l > 0 && finalEvPct !== 0 && (() => {
+                    const p_win = Math.min(0.85, Math.max(0.15, (finalEvPct / 100 + 1) / 2));
+                    const b     = Math.abs(finalEvPct) / 100;
+                    const k     = b > 0 ? Math.max(0, (b * p_win - (1 - p_win)) / b) : 0;
+                    const qk    = +(k * 0.25 * 100).toFixed(1);
+                    if (qk <= 0) return null;
+                    return (
+                      <>
+                        <span style={{ color: "#2a3550" }}>STAKE   │</span>
+                        <span style={{ color: "#818cf8", fontSize: 10 }}>
+                          ¼ Kelly: <span style={{ fontWeight: 700 }}>{qk}% bankroll</span>
+                          <span style={{ color: "#334155", marginLeft: 8 }}>({(k * 100).toFixed(1)}% full Kelly — quarter-Kelly recommended)</span>
+                        </span>
+                      </>
+                    );
+                  })()}
                 </div>
 
               </div>
