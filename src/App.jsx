@@ -2723,6 +2723,11 @@ export default function NBAPropsModel() {
                       <span style={{ background: "#f59e0b22", border: "1px solid #f59e0b44", borderRadius: 4, padding: "2px 8px" }}>STEP 2</span>
                       CLIENT ADJUSTMENTS (multiplied sequentially)
                     </div>
+                    {result?.serverCorr?.breakdown?.xgb_active && (
+                      <div style={{ marginBottom: 10, padding: "6px 12px", background: "rgba(37,99,235,.08)", border: "1px solid rgba(37,99,235,.2)", borderRadius: 6, fontSize: 11, color: "#64748b" }}>
+                        ⚡ XGBoost active — heuristic factors below are superseded by the ML base (Step 3). Only injury cascade &amp; residual still fire.
+                      </div>
+                    )}
                     <div className="mr"><span className="mk">Starting point</span><span className="mv">{proj.blended} {pr.label3}</span></div>
                     {proj.gamePace && <div className="mr">
                       <span className="mk">Pace ({pt} {ptd?.rsPace} · {ot} {otd?.rsPace} → avg {proj.gamePace})</span>
