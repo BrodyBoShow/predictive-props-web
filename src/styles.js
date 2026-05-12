@@ -3,8 +3,15 @@
 export const S = `
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Azeret+Mono:wght@300;400;500;600&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-  body{background:radial-gradient(ellipse at top, #0a1224 0%, #05080f 60%);color:#c8d4e8;font-family:'Space Grotesk',sans-serif;min-height:100vh;-webkit-font-smoothing:antialiased;}
-  body::before{content:"";position:fixed;top:0;left:0;right:0;height:320px;background:radial-gradient(ellipse at top,rgba(37,99,235,.1) 0%,transparent 70%);pointer-events:none;z-index:0;}
+  body{
+    background:#060b18;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(37,99,235,.18) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 80% 80%, rgba(99,102,241,.06) 0%, transparent 55%),
+      radial-gradient(ellipse 50% 30% at 10% 70%, rgba(16,185,129,.04) 0%, transparent 50%);
+    color:#c8d4e8;font-family:'Space Grotesk',sans-serif;min-height:100vh;-webkit-font-smoothing:antialiased;
+  }
+  body::before{content:"";position:fixed;top:0;left:0;right:0;height:400px;background:radial-gradient(ellipse at 50% 0%,rgba(37,99,235,.14) 0%,transparent 65%);pointer-events:none;z-index:0;}
   .root{max-width:820px;margin:0 auto;padding:32px 18px 96px;position:relative;z-index:1;}
   .header{margin-bottom:36px;}
   .htag{font-family:'Azeret Mono',monospace;font-size:11px;letter-spacing:.3em;color:#2563eb;text-transform:uppercase;margin-bottom:10px;font-weight:600;}
@@ -18,11 +25,11 @@ export const S = `
 
   /* ── GLASSMORPHISM CARDS ──────────────────────────────────────────── */
   .card{
-    background:linear-gradient(160deg,rgba(255,255,255,.045) 0%,rgba(255,255,255,.015) 100%);
-    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-    border:1px solid rgba(255,255,255,.09);
+    background:linear-gradient(160deg,rgba(255,255,255,.055) 0%,rgba(255,255,255,.018) 100%);
+    backdrop-filter:blur(16px) saturate(180%);-webkit-backdrop-filter:blur(16px) saturate(180%);
+    border:1px solid rgba(255,255,255,.12);
     border-radius:16px;padding:20px;
-    box-shadow:0 4px 24px rgba(0,0,0,.18),0 1px 0 rgba(255,255,255,.06) inset;
+    box-shadow:0 4px 24px rgba(0,0,0,.3),0 1px 0 rgba(255,255,255,.08) inset,0 0 0 1px rgba(255,255,255,.03) inset;
   }
 
   /* ── GAME LIST ───────────────────────────────────────────────────── */
@@ -140,28 +147,43 @@ export const S = `
   /* ── RESULT PANEL — grade-driven ambient lighting ────────────────── */
   .rp{
     margin-top:24px;
-    background:linear-gradient(160deg,rgba(37,99,235,.07) 0%,rgba(37,99,235,.02) 100%);
-    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-    border:1px solid rgba(37,99,235,.22);
+    background:linear-gradient(160deg,rgba(37,99,235,.09) 0%,rgba(37,99,235,.03) 100%);
+    backdrop-filter:blur(16px) saturate(160%);-webkit-backdrop-filter:blur(16px) saturate(160%);
+    border:1px solid rgba(37,99,235,.28);
     border-radius:18px;padding:26px;
-    box-shadow:0 8px 32px rgba(0,0,0,.2),0 1px 0 rgba(255,255,255,.05) inset;
-    transition:box-shadow .4s ease,border-color .4s ease;
+    box-shadow:0 8px 32px rgba(0,0,0,.28),0 1px 0 rgba(255,255,255,.07) inset;
+    transition:box-shadow .5s ease,border-color .5s ease,background .5s ease;
   }
   .rp[data-grade="LOCK"]{
-    border-color:rgba(168,85,247,.4);
-    box-shadow:0 8px 40px rgba(0,0,0,.22),0 0 60px rgba(168,85,247,.08),0 1px 0 rgba(255,255,255,.05) inset;
+    background:linear-gradient(160deg,rgba(168,85,247,.1) 0%,rgba(168,85,247,.03) 100%);
+    border-color:rgba(168,85,247,.55);
+    box-shadow:
+      0 8px 40px rgba(0,0,0,.3),
+      0 0 80px rgba(168,85,247,.15),
+      0 0 24px rgba(168,85,247,.12),
+      0 1px 0 rgba(255,255,255,.07) inset;
   }
   .rp[data-grade="ACTIONABLE"]{
-    border-color:rgba(16,185,129,.35);
-    box-shadow:0 8px 40px rgba(0,0,0,.22),0 0 50px rgba(16,185,129,.07),0 1px 0 rgba(255,255,255,.05) inset;
+    background:linear-gradient(160deg,rgba(16,185,129,.09) 0%,rgba(16,185,129,.03) 100%);
+    border-color:rgba(16,185,129,.5);
+    box-shadow:
+      0 8px 40px rgba(0,0,0,.28),
+      0 0 70px rgba(16,185,129,.12),
+      0 0 20px rgba(16,185,129,.1),
+      0 1px 0 rgba(255,255,255,.07) inset;
   }
   .rp[data-grade="WATCH"]{
-    border-color:rgba(37,99,235,.35);
-    box-shadow:0 8px 36px rgba(0,0,0,.22),0 0 40px rgba(37,99,235,.07),0 1px 0 rgba(255,255,255,.05) inset;
+    background:linear-gradient(160deg,rgba(37,99,235,.1) 0%,rgba(37,99,235,.03) 100%);
+    border-color:rgba(37,99,235,.5);
+    box-shadow:
+      0 8px 36px rgba(0,0,0,.28),
+      0 0 60px rgba(37,99,235,.12),
+      0 0 18px rgba(37,99,235,.1),
+      0 1px 0 rgba(255,255,255,.06) inset;
   }
   .rp[data-grade="SKIP"]{
-    border-color:rgba(100,116,139,.25);
-    box-shadow:0 8px 32px rgba(0,0,0,.18),0 1px 0 rgba(255,255,255,.03) inset;
+    border-color:rgba(100,116,139,.3);
+    box-shadow:0 8px 32px rgba(0,0,0,.22),0 1px 0 rgba(255,255,255,.04) inset;
   }
 
   /* ── RESULT HEADER ───────────────────────────────────────────────── */
@@ -227,11 +249,11 @@ export const S = `
 
   /* ── BULK TABLE CONTAINER ─────────────────────────────────────────── */
   .bulk-table-container{
-    background:linear-gradient(180deg,rgba(255,255,255,.025) 0%,rgba(255,255,255,.01) 100%);
-    backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
-    border:1px solid rgba(255,255,255,.08);
+    background:linear-gradient(180deg,rgba(255,255,255,.04) 0%,rgba(255,255,255,.015) 100%);
+    backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);
+    border:1px solid rgba(255,255,255,.12);
     border-radius:16px;overflow:hidden;
-    box-shadow:0 8px 32px rgba(0,0,0,.2),0 1px 0 rgba(255,255,255,.05) inset;
+    box-shadow:0 8px 36px rgba(0,0,0,.32),0 1px 0 rgba(255,255,255,.07) inset;
   }
 
   /* ── INLINE METRIC CHIPS ──────────────────────────────────────────── */
