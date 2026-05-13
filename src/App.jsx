@@ -2601,24 +2601,230 @@ export default function NBAPropsModel() {
                 );
               })()}
 
-              {/* ── ANALYST NARRATIVE — visible without expanding analysis ── */}
-              {serverCorr?.analystNarrative?.paragraphs?.length > 0 && (() => {
-                const an = serverCorr.analystNarrative;
+              {/* ── ANALYST NARRATIVE — client-side dynamic handicapper prose ── */}
+              {serverCorr && (() => {
+                const bd   = serverCorr.breakdown || {};
+                const xfd  = bd.xgb_features_debug || {};   // XGBoost feature dict — all matchup signals
+                const mc   = serverCorr.monteCarlo  || {};
+                const cb   = serverCorr.confidenceBand || {};
+
+                const isOver  = finalVerdict === "over";
+                const isUnder = finalVerdict === "under";
+                const side    = finalVerdict.toUpperCase();
+                const statLow = pr.label.toLowerCase();
+                const base    = serverCorr.base ?? proj.blended;
+
+                // ── Matchup signals from XGBoost feature dict ──────────────
+                const oppDef      = xfd.opp_def_roll10  != null ? +xfd.opp_def_roll10  : null;
+                const oppPace     = xfd.opp_pace_roll10 != null ? +xfd.opp_pace_roll10 : null;
+                const fg3vs       = xfd.fg3_vs_avg      != null ? +xfd.fg3_vs_avg      : null;
+                const rimvs       = xfd.rim_vs_avg      != null ? +xfd.rim_vs_avg      : null;
+                const inactUsg    = xfd.inactive_usg_pool            != null ? +xfd.inactive_usg_pool            : 0;
+                const potAst      = xfd.l5_potential_ast             != null ? +xfd.l5_potential_ast             : null;
+                const inactPotAst = xfd.inactive_potential_ast_pool  != null ? +xfd.inactive_potential_ast_pool  : 0;
+                const effD        = xfd.efficiency_delta != null ? +xfd.efficiency_delta : null;
+                const xpps        = xfd.xPPS_base       != null ? +xfd.xPPS_base       : null;
+
+                // ── Player baseline stats ──────────────────────────────────
+                const _getStat = obj => {
+                  if (!obj) return null;
+                  const keyMap = { points: ["ppg","pts"], rebounds: ["rpg","reb"], assists: ["apg","ast"],
+                                   three_pointers: ["fg3m"], steals: ["spg"], blocks: ["bpg"],
+                                   pra: ["pra"], pa: ["pa"], pr: ["pr"], ra: ["ra"] };
+                  for (const k of (keyMap[pr.id] || ["ppg"])) { const v = obj[k]; if (v != null) return +v; }
+                  return null;
+                };
+                const poAvg = _getStat(player?.po);
+                const poGp  = +(player?.po?.gp || 0);
+                const rsAvg = _getStat(player?.rs);
+                const rsGp  = +(player?.rs?.gp || 0);
+
+                // ── Series / game context ──────────────────────────────────
+                const seriesRaw = g?.series || "";
+                const gameTitle = g?.title  || "";
+                const seriesLow = seriesRaw.toLowerCase();
+
+                let seriesOpen = "";
+                if (seriesRaw && gameTitle) {
+                  if (/tied|tied \d/.test(seriesLow))
+                    seriesOpen = `In a winner-take-momentum ${gameTitle} (${seriesRaw}), `;
+                  else if (/leads 3/.test(seriesLow))
+                    seriesOpen = `With a commanding ${seriesRaw} heading into ${gameTitle}, `;
+                  else
+                    seriesOpen = `Heading into ${gameTitle} (${seriesRaw}), `;
+                } else if (gameTitle) {
+                  seriesOpen = `In ${gameTitle}, `;
+                }
+
+                // ── Conviction opener ──────────────────────────────────────
+                const absPct = Math.abs(finalEvPct);
+                let convOpen;
+                if (l > 0) {
+                  if (isOver) {
+                    if (absPct >= 5)      convOpen = `Play ${dname} OVER ${l} ${pr.label3} tonight.`;
+                    else if (absPct >= 3) convOpen = `${dname} OVER ${l} ${pr.label3} is the lean here.`;
+                    else                  convOpen = `There's a slim edge on ${dname} OVER ${l} ${pr.label3}.`;
+                  } else if (isUnder) {
+                    if (absPct >= 5)      convOpen = `Fade ${dname} UNDER ${l} ${pr.label3} tonight.`;
+                    else if (absPct >= 3) convOpen = `The number looks a touch high — ${dname} UNDER ${l} ${pr.label3}.`;
+                    else                  convOpen = `Slight lean toward ${dname} UNDER ${l} ${pr.label3}.`;
+                  } else {
+                    convOpen = `${dname} projects at ${finalProj} ${pr.label3} — nearly on the number.`;
+                  }
+                } else {
+                  convOpen = `${dname} projects to ${finalProj} ${pr.label3} tonight — no live line posted.`;
+                }
+
+                // ── MC / CB helpers ────────────────────────────────────────
+                const mcSimK = mc.n_sims ? (mc.n_sims / 1000).toFixed(0) : "10";
+                const mcSide = isOver ? mc.prob_over : mc.prob_under;
+                const mcPct  = mcSide != null ? (mcSide * 100).toFixed(1) : null;
+                const cbRange = (cb.floor != null && cb.ceiling != null) ? +(cb.ceiling - cb.floor).toFixed(1) : null;
+
+                // ── Build scheme/usage sentence fragments ──────────────────
+                const schemeFrags = [];
+
+                if (inactUsg > 9)
+                  schemeFrags.push(`With ${inactUsg.toFixed(1)} usage points sidelined tonight, ${dname} inherits a primary workload elevation that structurally unlocks the ceiling on this ${statLow} prop. When active personnel thins this far, his true-talent floor elevates well past season-long baselines.`);
+                else if (inactUsg > 4)
+                  schemeFrags.push(`Teammate absences rotate roughly ${inactUsg.toFixed(1)} usage points into ${dname}'s workload — incremental, but real.`);
+
+                if (oppDef != null) {
+                  if (oppDef > 116)
+                    schemeFrags.push(`Defensively, ${ot} has been one of the softest assignments in the field — surrendering ${oppDef.toFixed(1)} points per 100 possessions on a rolling basis. Opposing players have found clean, repeatable looks, and ${dname} has the toolkit to exploit it.`);
+                  else if (oppDef > 112)
+                    schemeFrags.push(`${ot} is a below-average defensive unit at ${oppDef.toFixed(1)} points per 100 possessions — not a sieve, but the kind of team that cedes space to skilled offensive initiators.`);
+                  else if (oppDef < 107)
+                    schemeFrags.push(`The defensive matchup is legitimately difficult. ${ot} grades as an elite unit at ${oppDef.toFixed(1)} points per 100 possessions — they shrink windows, force contested shots, and punish anything but the most efficient shot diet.`);
+                  else if (oppDef < 110)
+                    schemeFrags.push(`${ot} is a quality defensive team at ${oppDef.toFixed(1)} points per 100 possessions — they won't gift this number.`);
+                }
+
+                if (pr.id === "points") {
+                  if (fg3vs != null && fg3vs > 0.025)
+                    schemeFrags.push(`Their arc coverage has been exploitable — ${(fg3vs*100).toFixed(1)}pp above average in three-point attempts conceded, opening clean volume for perimeter-oriented scorers.`);
+                  else if (fg3vs != null && fg3vs < -0.025)
+                    schemeFrags.push(`They consistently funnel opponents off the arc (${(fg3vs*100).toFixed(1)}pp below average in 3PA rate), tightening the shot menu for outside-oriented players.`);
+                  if (rimvs != null && rimvs > 0.025)
+                    schemeFrags.push(`Interior defense has been a liability — opposing players convert ${(rimvs*100).toFixed(1)}pp above average at the rim. That's a real edge for anyone who can get downhill.`);
+                  else if (rimvs != null && rimvs < -0.025)
+                    schemeFrags.push(`Their rim protection is legitimate, holding drivers ${(Math.abs(rimvs)*100).toFixed(1)}pp below average on interior looks.`);
+                }
+
+                if (pr.id === "assists" || pr.id === "pa" || pr.id === "pra" || pr.id === "ra") {
+                  if (potAst != null && potAst >= 4)
+                    schemeFrags.push(`Passing-tracking logs ${potAst.toFixed(1)} potential assists per game — a creation workload that establishes a high-volume floor for tonight's assist projection.`);
+                  if (inactPotAst > 3)
+                    schemeFrags.push(`With ${inactPotAst.toFixed(1)} potential assists per game removed from the rotation, ${dname} absorbs added facilitation responsibility — a direct boost to the assist ceiling.`);
+                }
+
+                if (oppPace != null && oppPace > 99.5)
+                  schemeFrags.push(`The pace environment adds to the case — ${ot} runs at ${oppPace.toFixed(1)} possessions per game, well above average, inflating counting-stat opportunity across the board.`);
+                else if (oppPace != null && oppPace < 93)
+                  schemeFrags.push(`Pace is a headwind. ${ot} grinds at ${oppPace.toFixed(1)} possessions per game, structurally compressing volume floors for both teams.`);
+
+                if (effD != null && effD < -0.03)
+                  schemeFrags.push(`Shot-tracking is a quiet tailwind: ${dname}'s been converting ${(Math.abs(effD)*100).toFixed(1)}pp below his expected shot-quality baseline — positive efficiency regression is in play.`);
+                else if (effD != null && effD > 0.03)
+                  schemeFrags.push(`Tracking introduces a mild caveat — he's finishing ${(effD*100).toFixed(1)}pp above his expected shot-quality baseline, efficiency that historically normalizes.`);
+
+                // ── Sizing close ───────────────────────────────────────────
+                let sizingClose = "";
+                if (l > 0) {
+                  if (absPct >= 5 && cb.trust_score >= 65)
+                    sizingClose = `Full unit on the ${side}. The edge, the variance profile, and the matchup structure are all aligned.`;
+                  else if (absPct >= 4 && cb.trust_score >= 55)
+                    sizingClose = `Half-to-full unit ${side} — solid edge with manageable variance.`;
+                  else if (absPct >= 2)
+                    sizingClose = `Small unit ${side} — real edge, thin margin. Don't overweight.`;
+                  else
+                    sizingClose = `Thin play. If anything, small-unit ${side} or a watch.`;
+                }
+
                 return (
-                  <div style={{ marginBottom: 12, padding: "14px 16px", background: `${confGradeColor}08`, border: `1px solid ${confGradeColor}30`, borderRadius: 10 }}>
-                    <div style={{ fontFamily: "'Azeret Mono',monospace", fontSize: 9, color: confGradeColor, letterSpacing: ".14em", marginBottom: 10, fontWeight: 700, opacity: 0.85 }}>
+                  <div style={{ marginBottom: 12, padding: "18px 20px", background: `${confGradeColor}07`, border: `1px solid ${confGradeColor}28`, borderRadius: 12 }}>
+                    {/* Header */}
+                    <div style={{ fontFamily: "'Azeret Mono',monospace", fontSize: 9, color: confGradeColor, letterSpacing: ".14em", marginBottom: 14, fontWeight: 700, opacity: 0.8 }}>
                       ◆ ANALYST BREAKDOWN
                     </div>
-                    {an.headline && (
-                      <div style={{ fontSize: 11, color: confGradeColor, fontFamily: "'Azeret Mono',monospace", marginBottom: 10, fontWeight: 700, lineHeight: 1.4 }}>
-                        {an.headline}
+
+                    {/* Headline from server (still computed there) */}
+                    {serverCorr.analystNarrative?.headline && (
+                      <div style={{ fontSize: 11, color: confGradeColor, fontFamily: "'Azeret Mono',monospace", marginBottom: 14, fontWeight: 700, lineHeight: 1.4 }}>
+                        {serverCorr.analystNarrative.headline}
                       </div>
                     )}
-                    {an.paragraphs.map((p, i) => (
-                      <div key={i} style={{ fontSize: 11.5, color: "#cbd5e1", lineHeight: 1.7, marginBottom: i < an.paragraphs.length - 1 ? 10 : 0, fontFamily: "system-ui, -apple-system, sans-serif" }}>
-                        {p}
-                      </div>
-                    ))}
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: 14, fontSize: 12, color: "#cbd5e1", lineHeight: 1.75, fontFamily: "system-ui,-apple-system,sans-serif" }}>
+
+                      {/* ── THE HANDICAP ─────────────────────────────────── */}
+                      <p style={{ margin: 0 }}>
+                        <strong style={{ color: "#e8f0ff", fontFamily: "'Azeret Mono',monospace", fontSize: 11 }}>The Handicap: </strong>
+                        {seriesOpen}
+                        {l > 0 ? <>
+                          our models back{" "}
+                          <strong style={{ color: finalEc }}>{dname} {side} {l} {pr.label3}</strong>
+                          {" "}— projecting{" "}
+                          <strong style={{ color: confGradeColor }}>{finalProj}</strong>
+                          {" "}against the book number, a {Math.abs(finalEdge).toFixed(1)}-unit gap worth{" "}
+                          <strong style={{ color: finalEvPct > 0 ? "#10b981" : "#ef4444" }}>
+                            {finalEvPct > 0 ? "+" : ""}{finalEvPct}% in expected value
+                          </strong>.
+                          {base > 0 && <>{" "}The raw historical baseline sat at {base} before contextual adjustments pushed the median to its current read.</>}
+                        </> : <>
+                          {dname} projects to{" "}
+                          <strong style={{ color: confGradeColor }}>{finalProj} {pr.label3}</strong>
+                          {" "}tonight. No live line for EV calculation.
+                        </>}
+                      </p>
+
+                      {/* ── USAGE & SCHEME ───────────────────────────────── */}
+                      {schemeFrags.length > 0 && (
+                        <p style={{ margin: 0 }}>
+                          <strong style={{ color: "#e8f0ff", fontFamily: "'Azeret Mono',monospace", fontSize: 11 }}>Usage & Scheme: </strong>
+                          {schemeFrags.join(" ")}
+                        </p>
+                      )}
+
+                      {/* ── VARIANCE SECURITY ────────────────────────────── */}
+                      <p style={{ margin: 0 }}>
+                        <strong style={{ color: "#e8f0ff", fontFamily: "'Azeret Mono',monospace", fontSize: 11 }}>Variance Security: </strong>
+                        {poAvg != null && poGp >= 3
+                          ? <>{dname} is averaging {poAvg.toFixed(1)} {statLow} across {poGp} playoff appearances{rsAvg != null && rsGp >= 10 ? `, backed by a ${rsAvg.toFixed(1)} regular-season baseline over ${rsGp} games` : ""}. </>
+                          : rsAvg != null
+                          ? <>{dname}'s {rsAvg.toFixed(1)} regular-season average over {rsGp} games provides the historical anchor. </>
+                          : null}
+                        {mcPct != null && <>
+                          Empirical evaluation across {mcSimK}K Monte Carlo simulations gives the{" "}
+                          <strong style={{ color: finalEc }}>{side}</strong> a{" "}
+                          <strong style={{ color: +mcPct >= 58 ? "#10b981" : "#94a3b8" }}>{mcPct}%</strong> probability
+                          {mc.implied_fair_line
+                            ? <>, with a model-implied fair line of <strong style={{ color: confGradeColor }}>{mc.implied_fair_line}</strong></>
+                            : null}. {" "}
+                        </>}
+                        {cbRange != null
+                          ? cbRange <= 4
+                            ? <>The 68% outcome range — <strong>{cb.floor}–{cb.ceiling} {pr.label3}</strong> — is tight, insulating against dead-money floor games. </>
+                            : cbRange > 7
+                            ? <>Wide 68% range of <strong>{cb.floor}–{cb.ceiling} {pr.label3}</strong> — variance is real, size with discipline. </>
+                            : <>The 68% range spans <strong>{cb.floor}–{cb.ceiling} {pr.label3}</strong>. </>
+                          : null}
+                        {cb.cv != null
+                          ? cb.cv < 0.30
+                            ? <>CV of {cb.cv.toFixed(3)} — elite floor compression that protects against dead-money outcomes.</>
+                            : cb.cv < 0.40
+                            ? <>CV of {cb.cv.toFixed(3)} reflects moderate variance — standard bankroll discipline applies.</>
+                            : <>CV of {cb.cv.toFixed(3)} flags elevated volatility — small-unit territory.</>
+                          : cb.trust_score != null
+                          ? cb.trust_score >= 70
+                            ? <>Trust score {cb.trust_score}/100 — variance is controlled.</>
+                            : cb.trust_score >= 50
+                            ? <>Trust score {cb.trust_score}/100 — moderate variance.</>
+                            : <>Trust score {cb.trust_score}/100 — elevated volatility.</>
+                          : null}
+                        {sizingClose && <> {sizingClose}</>}
+                      </p>
+                    </div>
                   </div>
                 );
               })()}
