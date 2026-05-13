@@ -124,7 +124,9 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
   //   pct3 * fg3VsAvg = how much the opp 3pt defense matters for THIS player's scoring
   //   pctPaint * rimVsAvg = same for paint scoring
   //   pctOther * flatDEFF = midrange/FT portion uses overall dEFF delta
-  // For all other scoring props: flat dEFF (113.5 league avg / opp dEFF).
+  // For all other scoring props: flat dEFF (opp dEFF / league avg).
+  // NOTE: higher dEFF = worse defense = boost. Lower dEFF = elite defense = penalty.
+  // Formula is opp/avg (not avg/opp) so direction is correct.
   let defAdj = 1.0;
   if (isScoringProp) {
     const s = scoring; const td = teamDef?.[oppTeam];
@@ -134,10 +136,10 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
       const pctOther = Math.max(0, 1 - pct3 - pctPaint);
       const fg3Impact  = pct3     * (td.fg3VsAvg ?? 0);
       const rimImpact  = pctPaint * (td.rimVsAvg ?? 0);
-      const flatImpact = pctOther * (113.5 / otd.dEFF - 1);
+      const flatImpact = pctOther * (otd.dEFF / LEAGUE_AVG_dEFF - 1);
       defAdj = +Math.max(0.88, Math.min(1.12, 1 + fg3Impact + rimImpact + flatImpact)).toFixed(4);
     } else if (otd?.dEFF) {
-      defAdj = +(113.5 / otd.dEFF).toFixed(4);
+      defAdj = +(otd.dEFF / LEAGUE_AVG_dEFF).toFixed(4);
     }
   }
 
@@ -268,7 +270,12 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
     }
   }
 
-  const adjustedProjection = +(blended * paceAdj * defAdj * homeAdj * restAdj * onOffAdj * tsAdj * fg3DefAdj * clutchAdj * injAdj * vsOppAdj * matchupDeltaAdj * astConvAdj).toFixed(1);
+  // Damp the combined multiplier deviation by 40% to prevent compounding inflation.
+  // Each adjustment is sound in isolation but stacking them multiplicatively
+  // over-amplifies correlated signals (pace + defense + rest all push same direction).
+  const rawMultiplier = paceAdj * defAdj * homeAdj * restAdj * onOffAdj * tsAdj * fg3DefAdj * clutchAdj * injAdj * vsOppAdj * matchupDeltaAdj * astConvAdj;
+  const dampedMultiplier = 1 + (rawMultiplier - 1) * 0.60;
+  const adjustedProjection = +(blended * dampedMultiplier).toFixed(1);
   return { propRS, propPO, propRecent, propVsOpp, blended, gamePace, paceAdj, defAdj, homeAdj, restAdj, onOffAdj, tsAdj, fg3DefAdj, clutchAdj, injAdj, vsOppAdj, matchupDeltaAdj, astConvAdj, isHome, restDays, adjustedProjection };
 }
 
@@ -1324,7 +1331,7 @@ export default function NBAPropsModel() {
       ["PROJECTION MATH", "MULTIPLIER", "IMPACT", "SOURCE", ""],
       ["Blended baseline", proj.blended, "—", "Verified DB", ""],
       [`RS Pace (${pt} ${ptd?.rsPace} · ${ot} ${otd?.rsPace})`, proj.paceAdj.toFixed(4), `${((proj.paceAdj - 1) * 100).toFixed(2)}%`, "NBA.com RS", ""],
-      proj.defAdj !== 1.0 ? [`${ot} dEFF (${otd?.dEFF} vs lg avg 113.5)`, proj.defAdj.toFixed(4), `${((proj.defAdj - 1) * 100).toFixed(2)}%`, "NBAsuffer PO", ""] : [],
+      proj.defAdj !== 1.0 ? [`${ot} dEFF (${otd?.dEFF} vs lg avg ${LEAGUE_AVG_dEFF})`, proj.defAdj.toFixed(4), `${((proj.defAdj - 1) * 100).toFixed(2)}%`, "NBAsuffer PO", ""] : [],
       proj.homeAdj !== 1.0 ? [`Home/Road (${isHome ? "HOME" : "ROAD"})`, proj.homeAdj.toFixed(4), `${((proj.homeAdj - 1) * 100).toFixed(2)}%`, "NBAsuffer RS splits", ""] : [],
       proj.restAdj !== 1.0 ? [`Rest days (${restDays}d)`, proj.restAdj.toFixed(4), `${((proj.restAdj - 1) * 100).toFixed(2)}%`, "Sportradar + NBAsuffer", ""] : [],
       proj.onOffAdj !== 1.0 ? [`On/Off delta (${player.onOffDelta > 0 ? "+" : ""}${player.onOffDelta})`, proj.onOffAdj.toFixed(4), `${((proj.onOffAdj - 1) * 100).toFixed(2)}%`, "NBA.com On/Off PO", ""] : [],
@@ -2823,7 +2830,7 @@ export default function NBAPropsModel() {
                       <span className={`mv ${proj.paceAdj > 1.005 ? "pos" : proj.paceAdj < 0.995 ? "neg" : ""}`}>×{proj.paceAdj.toFixed(3)} ({proj.paceAdj > 1.001 ? "+" : ""}{((proj.paceAdj - 1) * 100).toFixed(1)}%)</span>
                     </div>}
                     {proj.defAdj !== 1.0 && <div className="mr">
-                      <span className="mk">{ot} dEFF {otd?.dEFF} vs league avg 113.5</span>
+                      <span className="mk">{ot} dEFF {otd?.dEFF} vs league avg {LEAGUE_AVG_dEFF}</span>
                       <span className={`mv ${proj.defAdj > 1.005 ? "pos" : proj.defAdj < 0.995 ? "neg" : ""}`}>×{proj.defAdj.toFixed(3)} ({proj.defAdj > 1.001 ? "+" : ""}{((proj.defAdj - 1) * 100).toFixed(1)}%)</span>
                     </div>}
                     {proj.homeAdj !== 1.0 && <div className="mr">
@@ -2960,7 +2967,7 @@ export default function NBAPropsModel() {
                     <div className="cc"><div className="ccl">{pt} RS Pace</div><div className="ccv">{ptd?.rsPace}</div><div className="ccs">NBA.COM · 82 RS GAMES</div></div>
                     <div className="cc"><div className="ccl">{ot} RS Pace</div><div className="ccv">{otd?.rsPace}</div><div className="ccs">NBA.COM · 82 RS GAMES</div></div>
                     <div className="cc"><div className="ccl">{pt} Net Eff</div><div className="ccv" style={{ color: ptd?.eDIFF > 0 ? "#10b981" : "#ef4444" }}>{ptd?.eDIFF > 0 ? "+" : ""}{ptd?.eDIFF}</div><div className="ccs">oEFF {ptd?.oEFF} · dEFF {ptd?.dEFF}</div></div>
-                    <div className="cc"><div className="ccl">{ot} Def Eff</div><div className="ccv">{otd?.dEFF}</div><div className="ccs">Lg avg 113.5 · {otd?.dEFF < 113.5 ? "stronger" : "weaker"} than avg</div></div>
+                    <div className="cc"><div className="ccl">{ot} Def Eff</div><div className="ccv">{otd?.dEFF}</div><div className="ccs">Lg avg {LEAGUE_AVG_dEFF} · {otd?.dEFF < LEAGUE_AVG_dEFF ? "stronger" : "weaker"} than avg</div></div>
                     <div className="cc"><div className="ccl">Home/Road</div><div className="ccv" style={{ color: isHome ? "#10b981" : "#f59e0b" }}>{isHome ? "🏠 HOME" : "✈ ROAD"}</div><div className="ccs">SPORTRADAR · {isHome ? "+3.16%" : "-3.06%"} adj{["points","pra","pa","pr"].includes(pr.id) ? "" : " (N/A)"}</div></div>
                     <div className="cc"><div className="ccl">Rest Days</div><div className="ccv">{restDays !== null ? restDays + "d" : "—"}</div><div className="ccs">SPORTRADAR · {restDays === 2 ? "+1.5% adj" : restDays >= 3 ? "+2.0% adj" : "baseline"}</div></div>
                   </div>
