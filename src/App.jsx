@@ -2711,6 +2711,29 @@ export default function NBAPropsModel() {
                     schemeFrags.push(`Their rim protection is legitimate, holding drivers ${(Math.abs(rimvs)*100).toFixed(1)}pp below average on interior looks.`);
                 }
 
+                if (pr.id === "three_point_attempts") {
+                  if (fg3vs != null && fg3vs > 0.02)
+                    schemeFrags.push(`${ot} concedes three-point attempts at a generous rate — ${(fg3vs*100).toFixed(1)}pp above league average. That's a direct volume uplift for this 3PA prop.`);
+                  else if (fg3vs != null && fg3vs < -0.02)
+                    schemeFrags.push(`${ot} actively forces opponents off the arc (${(fg3vs*100).toFixed(1)}pp below league in 3PA rate). This is the primary headwind on this 3PA number.`);
+                }
+
+                if (pr.id === "two_point_attempts") {
+                  if (rimvs != null && rimvs > 0.02)
+                    schemeFrags.push(`${ot}'s interior defense has been soft — opponents convert ${(rimvs*100).toFixed(1)}pp above average at the rim, meaning more drives get rewarded and 2PA volume inflates.`);
+                  else if (rimvs != null && rimvs < -0.02)
+                    schemeFrags.push(`${ot} protects the paint well — ${(Math.abs(rimvs)*100).toFixed(1)}pp below average on interior FG% conceded. Fewer rewarding drives means lower 2PA volume incentive.`);
+                }
+
+                if (pr.id === "field_goal_attempts") {
+                  if (fg3vs != null && fg3vs > 0.02)
+                    schemeFrags.push(`${ot} gives up shots from the arc at an above-average rate (+${(fg3vs*100).toFixed(1)}pp), which expands total FGA opportunity for perimeter-heavy players.`);
+                  if (rimvs != null && rimvs > 0.02)
+                    schemeFrags.push(`Soft paint resistance (${(rimvs*100).toFixed(1)}pp above average on rim FG% conceded) adds further FGA volume through rewarded drives.`);
+                  if ((fg3vs == null || fg3vs <= 0.02) && (rimvs == null || rimvs <= 0.02) && fg3vs != null && fg3vs < -0.02)
+                    schemeFrags.push(`${ot} compresses shot selection on the arc — a headwind for FGA volume on this number.`);
+                }
+
                 if (pr.id === "assists" || pr.id === "pa" || pr.id === "pra" || pr.id === "ra") {
                   if (potAst != null && potAst >= 4)
                     schemeFrags.push(`Passing-tracking logs ${potAst.toFixed(1)} potential assists per game — a creation workload that establishes a high-volume floor for tonight's assist projection.`);
