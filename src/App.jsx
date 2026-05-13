@@ -903,18 +903,22 @@ export default function NBAPropsModel() {
       const overCount = rows.filter(r => r.lean === "OVER").length;
       const flagWarn  = overCount / rows.length >= 0.75;
 
-      const ctx = rows.find(r => r.gameCtx?.total != null && r.gameCtx?.spread != null)?.gameCtx;
+      const ctx = rows.find(r => r.gameCtx?.total != null)?.gameCtx;
       if (ctx) {
-        const teamImplied = (ctx.total - ctx.spread) / 2;
+        // Spread is from team's perspective (negative = favorite). null → even split.
+        const spread      = ctx.spread != null ? ctx.spread : 0;
+        const teamImplied = (ctx.total - spread) / 2;
         const cap         = teamImplied * 0.90;
         const sumProj     = rows.reduce((s, r) => s + r.proj, 0);
         if (sumProj > cap) {
-          const sumBase      = rows.reduce((s, r) => s + (r.base || r.proj), 0);
-          const totalOverage = sumProj - sumBase;
+          // Only positive overage (proj > base) can be scaled down. Negative overage
+          // (proj < base) is left alone — burden falls on over-projected players.
+          const totalOverage = rows.reduce((s, r) => s + Math.max(0, r.proj - (r.base || r.proj)), 0);
           const excess       = sumProj - cap;
           const scaleDown    = totalOverage > 0 ? Math.min(1.0, excess / totalOverage) : 0;
           rows.forEach(r => {
-            const overage  = r.proj - (r.base || r.proj);
+            const overage  = Math.max(0, r.proj - (r.base || r.proj));
+            if (overage <= 0) { r.scaled = true; return; }
             const newProj  = +(r.proj - overage * scaleDown).toFixed(1);
             r.proj   = newProj;
             r.ev     = +((newProj / r.line - 1) * 100).toFixed(1);
