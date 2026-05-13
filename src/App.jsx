@@ -1190,7 +1190,11 @@ export default function NBAPropsModel() {
     if (id === "pa")             return gameLog.map(g => (g.pts||0) + (g.ast||0));
     if (id === "pr")             return gameLog.map(g => (g.pts||0) + (g.reb||0));
     if (id === "ra")             return gameLog.map(g => (g.reb||0) + (g.ast||0));
-    if (id === "three_pointers") return gameLog.map(g => g.fg3m || 0);
+    if (id === "three_pointers")        return gameLog.map(g => g.fg3m || 0);
+    if (id === "three_point_attempts")  return gameLog.map(g => g.fg3a || 0);
+    if (id === "field_goal_attempts")   return gameLog.map(g => g.fga  || 0);
+    if (id === "two_point_attempts")    return gameLog.map(g => Math.max(0, (g.fga||0) - (g.fg3a||0)));
+    if (id === "field_goal_made")       return gameLog.map(g => g.fgm  || 0);
     const propStatKey = { points:"pts", assists:"ast", rebounds:"reb", steals:"stl", blocks:"blk" };
     const k = propStatKey[id] || "pts";
     return gameLog.map(g => g[k] || 0);
@@ -2732,6 +2736,15 @@ export default function NBAPropsModel() {
                     schemeFrags.push(`Soft paint resistance (${(rimvs*100).toFixed(1)}pp above average on rim FG% conceded) adds further FGA volume through rewarded drives.`);
                   if ((fg3vs == null || fg3vs <= 0.02) && (rimvs == null || rimvs <= 0.02) && fg3vs != null && fg3vs < -0.02)
                     schemeFrags.push(`${ot} compresses shot selection on the arc — a headwind for FGA volume on this number.`);
+                }
+
+                if (pr.id === "field_goal_made") {
+                  if (rimvs != null && rimvs > 0.02)
+                    schemeFrags.push(`${ot} is leaking at the rim — opponents convert ${(rimvs*100).toFixed(1)}pp above average on interior looks. That's higher FGM output per drive, a direct volume boost on this makes number.`);
+                  else if (rimvs != null && rimvs < -0.02)
+                    schemeFrags.push(`${ot} holds the paint — ${(Math.abs(rimvs)*100).toFixed(1)}pp below average on rim FG% conceded. Fewer rewarded drives suppress the FGM ceiling.`);
+                  if (fg3vs != null && fg3vs > 0.025)
+                    schemeFrags.push(`Arc volume is also elevated (+${(fg3vs*100).toFixed(1)}pp above average in 3PA rate), adding another channel for FGM accumulation.`);
                 }
 
                 if (pr.id === "assists" || pr.id === "pa" || pr.id === "pra" || pr.id === "ra") {

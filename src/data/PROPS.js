@@ -15,4 +15,5 @@ export const PROPS = [
   { id: "three_point_attempts", label: "3-Pt Attempts", icon: "🎯", short: "3PA", statKey: p => +(p.fg3apg || 0), label3: "3PA" },
   { id: "field_goal_attempts",  label: "FG Attempts",   icon: "🏹", short: "FGA", statKey: p => +(p.fgapg  || 0), label3: "FGA" },
   { id: "two_point_attempts",   label: "2-Pt Attempts", icon: "🔥", short: "2PA", statKey: p => +(Math.max(0, (p.fgapg || 0) - (p.fg3apg || 0)).toFixed(1)), label3: "2PA" },
+  { id: "field_goal_made",      label: "FG Made",       icon: "✅", short: "FGM", statKey: p => +(p.fgmpg  || 0), label3: "FGM" },
 ];
