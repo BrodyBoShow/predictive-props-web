@@ -17,6 +17,9 @@ export const TEAM_DATA = {
   // rsPace: NBA.com RS 2025-26 — NEEDS VERIFICATION from user screenshot
   // PO oEFF/dEFF: vs POR R1 — NEEDS VERIFICATION from NBAsuffer
   SAS: { rsPace: 99.20, oEFF: 113.5, dEFF: 107.8, eDIFF: 5.7, fullName: "San Antonio Spurs" },
+  // ── IND added May 13 2026 — R1 vs CLE ────────────────────────────────────
+  // rsPace: NBA.com RS 2025-26. oEFF/dEFF: backend teams_cache RS proxy (PO sample small).
+  IND: { rsPace: 101.8, oEFF: 114.5, dEFF: 117.9, eDIFF: -3.4, fullName: "Indiana Pacers" },
 };
 export const LEAGUE_AVG_dEFF = 113.5;
 
