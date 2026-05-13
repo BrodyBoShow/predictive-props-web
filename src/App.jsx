@@ -875,7 +875,7 @@ export default function NBAPropsModel() {
           const pulledAt = bulkLinePulledAt[task.name]?.[task.propId] ?? null;
           results.push({
             name: task.name, team: task.team, propId: task.propId, line: task.line,
-            proj, base, ev, cv, grade,
+            proj, base, ev, cv, grade, poGp,
             lean: proj > task.line ? "OVER" : "UNDER",
             band: data.confidence_band ?? null,
             gameCtx: data.game_context ?? null,
@@ -887,10 +887,10 @@ export default function NBAPropsModel() {
       setBulkProgress(p => ({ ...p, done: p.done + 1 }));
       await new Promise(r => setTimeout(r, 120));
     }
-    // ── Team-total OVER warning (no scaling — XGBoost is already calibrated) ──
-    // Flag rows when ≥75% of a team's tracked scorers all lean OVER (for UI warning only).
-    // We no longer scale projections: XGBoost provides calibrated individual estimates
-    // and post-hoc scaling caused false UNDERs for legitimate high-usage stars.
+    // ── Team-total normalization (pts) — regress to base when sum exceeds Vegas implied ──
+    // For each team with ≥3 tracked points props, cap aggregate at 90% of implied total
+    // (rest = deep bench). When sum exceeds cap, pull each player's proj toward its base
+    // proportional to overage (proj - base). Preserves relative ranking; trims aggregate.
     const byTeam = {};
     results.forEach(r => {
       if (r.propId === "points") {
@@ -898,11 +898,39 @@ export default function NBAPropsModel() {
         byTeam[r.team].push(r);
       }
     });
-    Object.values(byTeam).forEach(rows => {
+    Object.entries(byTeam).forEach(([team, rows]) => {
+      if (rows.length < 3) return;
       const overCount = rows.filter(r => r.lean === "OVER").length;
-      if (rows.length >= 3 && overCount / rows.length >= 0.75) {
-        rows.forEach(r => { r.teamOverWarn = true; });
+      const flagWarn  = overCount / rows.length >= 0.75;
+
+      const ctx = rows.find(r => r.gameCtx?.total != null && r.gameCtx?.spread != null)?.gameCtx;
+      if (ctx) {
+        const teamImplied = (ctx.total - ctx.spread) / 2;
+        const cap         = teamImplied * 0.90;
+        const sumProj     = rows.reduce((s, r) => s + r.proj, 0);
+        if (sumProj > cap) {
+          const sumBase      = rows.reduce((s, r) => s + (r.base || r.proj), 0);
+          const totalOverage = sumProj - sumBase;
+          const excess       = sumProj - cap;
+          const scaleDown    = totalOverage > 0 ? Math.min(1.0, excess / totalOverage) : 0;
+          rows.forEach(r => {
+            const overage  = r.proj - (r.base || r.proj);
+            const newProj  = +(r.proj - overage * scaleDown).toFixed(1);
+            r.proj   = newProj;
+            r.ev     = +((newProj / r.line - 1) * 100).toFixed(1);
+            r.lean   = newProj > r.line ? "OVER" : "UNDER";
+            r.scaled = true;
+            r.grade  = computeGrade({ evPct: r.ev, cv: r.cv, poGp: r.poGp || 0, projection: newProj, baseline: r.base });
+            if (r.ev && r.line) {
+              const p_win = Math.min(0.85, Math.max(0.15, (r.ev / 100 + 1) / 2));
+              const b     = Math.abs(r.ev) / 100;
+              const k     = b > 0 ? Math.max(0, (b * p_win - (1 - p_win)) / b) : 0;
+              r.qKelly = +(k * 0.25 * 100).toFixed(1);
+            }
+          });
+        }
       }
+      if (flagWarn) rows.forEach(r => { r.teamOverWarn = true; });
     });
 
     const gradeOrder = { LOCK: 0, ACTIONABLE: 1, WATCH: 2, SKIP: 3 };
@@ -1754,9 +1782,10 @@ export default function NBAPropsModel() {
                   {(() => {
                     const ptsByTeam = {};
                     bulkProjResults.filter(r => r.propId === "points").forEach(r => {
-                      if (!ptsByTeam[r.team]) ptsByTeam[r.team] = { overs: 0, total: 0 };
+                      if (!ptsByTeam[r.team]) ptsByTeam[r.team] = { overs: 0, total: 0, scaled: false };
                       ptsByTeam[r.team].total++;
                       if (r.lean === "OVER") ptsByTeam[r.team].overs++;
+                      if (r.scaled) ptsByTeam[r.team].scaled = true;
                     });
                     const warnings = Object.entries(ptsByTeam).filter(([, v]) => v.total >= 3 && v.overs / v.total >= 0.75);
                     if (!warnings.length) return null;
