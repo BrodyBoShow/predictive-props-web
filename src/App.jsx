@@ -1327,7 +1327,8 @@ export default function NBAPropsModel() {
                             evEdge: sd.ev_edge, breakdown: sd.breakdown,
                             drivers: sd.drivers, dataQuality: sd.data_quality,
                             confidenceBand: sd.confidence_band, bookGap: sd.book_gap,
-                            monteCarlo: sd.monte_carlo },
+                            monteCarlo: sd.monte_carlo,
+                            analystNarrative: sd.analyst_narrative },
               impactList: serverDrivers.length > 0 ? serverDrivers : prev.impactList,
             } : prev);
           }
@@ -2955,6 +2956,23 @@ export default function NBAPropsModel() {
                               : "#64748b",
                               marginBottom: 4, lineHeight: 1.5 }}>
                               › {d}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {serverCorr.analystNarrative?.paragraphs?.length > 0 && (
+                        <div style={{ margin: "10px 0", padding: "10px 12px", background: "rgba(255,255,255,.02)", border: "1px solid rgba(99,102,241,.15)", borderRadius: 6 }}>
+                          <div style={{ fontFamily: "'Azeret Mono',monospace", fontSize: 9, color: "#6366f1", letterSpacing: ".12em", marginBottom: 8 }}>
+                            ◆ ANALYST BREAKDOWN
+                          </div>
+                          {serverCorr.analystNarrative.headline && (
+                            <div style={{ fontSize: 10, color: "#818cf8", fontFamily: "'Azeret Mono',monospace", marginBottom: 8, fontWeight: 600 }}>
+                              {serverCorr.analystNarrative.headline}
+                            </div>
+                          )}
+                          {serverCorr.analystNarrative.paragraphs.map((p, i) => (
+                            <div key={i} style={{ fontSize: 10.5, color: "#94a3b8", lineHeight: 1.65, marginBottom: i < serverCorr.analystNarrative.paragraphs.length - 1 ? 8 : 0 }}>
+                              {p}
                             </div>
                           ))}
                         </div>
