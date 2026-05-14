@@ -894,7 +894,7 @@ export default function NBAPropsModel() {
             game_log_context: gameLogFull,
             current_ctx: buildResidualCtx({
               isHome: task.isHome, gameTitle: game?.title, restDays: taskRestDays,
-              outPlayers: injuryContext?.outPlayers || [],
+              outPlayers: [],  // bulk has no per-player injury context; injuryContext is single-player only
             }),
           }),
         });
@@ -986,7 +986,7 @@ export default function NBAPropsModel() {
     results.sort((a, b) => (gradeOrder[a.grade] - gradeOrder[b.grade]) || (Math.abs(b.ev) - Math.abs(a.ev)));
     setBulkProjResults(results);
     setBulkRunning(false);
-  }, [game, bulkRosterPlayers, bulkLines, bulkProps, effectiveDB, getResiduals, buildResidualCtx, injuryContext]);
+  }, [game, bulkRosterPlayers, bulkLines, bulkProps, effectiveDB, getResiduals, buildResidualCtx]);
 
   // ── Bulk live-line fetch — pulls Odds API slate (server-cached) for all players × props ──
   const fetchBulkLines = useCallback(async () => {
