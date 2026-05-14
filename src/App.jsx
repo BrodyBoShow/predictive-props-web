@@ -896,7 +896,8 @@ export default function NBAPropsModel() {
           const ev   = +((proj / task.line - 1) * 100).toFixed(1);
           const cv   = data.confidence_band?.cv ?? null;
           const poGp = data.data_quality?.po_gp ?? 0;
-          const grade = computeGrade({ evPct: ev, cv, poGp, projection: proj, baseline: base });
+          const q25  = data.breakdown?.xgb_q25 ?? null;
+          const grade = computeGrade({ evPct: ev, cv, poGp, projection: proj, baseline: base, q25, line: task.line });
           // Quarter-Kelly stake recommendation
           const qKelly = (() => {
             if (!ev || !task.line) return null;
@@ -1245,7 +1246,7 @@ export default function NBAPropsModel() {
   // correctly while the book sits below them (BET IT), OR (b) model is reaching —
   // adjustments pushed projection far above the player's own baseline (SKIP IT).
   // modelLift distinguishes these: tiny lift = book is wrong; big lift = model is.
-  const computeGrade = ({ evPct, cv, poGp, projection, baseline }) => {
+  const computeGrade = ({ evPct, cv, poGp, projection, baseline, q25 = null, line = null }) => {
     const absEv     = Math.abs(evPct || 0);
     const modelLift = baseline > 0 ? Math.abs(projection - baseline) / baseline : 0;
     const cvOk30    = cv != null && cv < 0.30;
@@ -1255,9 +1256,12 @@ export default function NBAPropsModel() {
     const liftOk10  = modelLift < 0.10;   // ≤10% lift = model conservative
     const liftOk15  = modelLift < 0.15;   // ≤15% lift = moderate adjustment
     const liftOk20  = modelLift < 0.20;   // ≤20% lift = aggressive but plausible
-    if (absEv > 10 && cvOk30 && sampleOk && liftOk10)              return "LOCK";
-    if (absEv > 7  && (cvOk40 || !cvKnown) && sampleOk && liftOk15) return "ACTIONABLE";
-    if (absEv > 4  && liftOk20)                                      return "WATCH";
+    // Hard LOCK gate: q25 (model's pessimistic floor) must also clear the line.
+    // If the worst-case scenario goes under, it's not a lock — it's a gamble.
+    const q25SafeOver = q25 == null || line == null || line <= 0 || q25 > line;
+    if (absEv > 10 && cvOk30 && sampleOk && liftOk10 && q25SafeOver) return "LOCK";
+    if (absEv > 7  && (cvOk40 || !cvKnown) && sampleOk && liftOk15)  return "ACTIONABLE";
+    if (absEv > 4  && liftOk20)                                        return "WATCH";
     return "SKIP";
   };
 
@@ -1355,6 +1359,8 @@ export default function NBAPropsModel() {
               poGp:       sd.data_quality?.po_gp,
               projection: sProj,
               baseline:   sd.base_projection,
+              q25:        sd.breakdown?.xgb_q25 ?? null,
+              line:       l,
             });
             // Server drivers replace the client impactList in the terminal panel
             const serverDrivers = (sd.drivers || []).map(d => ({ name: d, impact: null }));
