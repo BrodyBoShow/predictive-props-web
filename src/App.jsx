@@ -865,35 +865,40 @@ export default function NBAPropsModel() {
       const recent = recentCache[task.name];
       const gameLogFull = recent?.gameLogFull || recent?.gameLog || [];
       const gameLog = recent?.gameLog || [];
-      const l5Key = L5_KEY[task.propId];
-      // Use the server-aggregated recent stat (same source as single-player's prop.statKey(recentStats))
-      // to avoid null/DNP entries in per-game log dragging the average down
+      // Use server-aggregated L5 avg (same source as single-player)
       const L5_AGG_KEY = { points: "ppg", rebounds: "rpg", assists: "apg", steals: "spg", blocks: "bpg", turnovers: "topg" };
       const l5AggKey = L5_AGG_KEY[task.propId];
       const l5avg = l5AggKey && recent?.recent?.[l5AggKey] != null
         ? +Number(recent.recent[l5AggKey]).toFixed(2)
         : null;
-      // Per-game values — match single-player extractL5StatValues (include zeros, no DNP filter)
-      const l5vals = l5Key ? gameLog.map(g => g[l5Key] || 0) : [];
+      // Use extractL5StatValues — handles combo props (PRA/PA/PR/RA) and new props (3PA/FGA/FGM)
+      const l5vals = extractL5StatValues(gameLog, task.propId);
       const opp = task.team === game.home ? game.away : game.home;
+      // Pass actual rest days (same as single-player) — null causes wrong is_b2b/is_well_rested features
+      const taskRestDays = game.restDays?.[task.team] ?? null;
       const priorResiduals = getResiduals(task.name, task.propId).map(r => ({ projected: r.projected, actual: r.actual, ctx: r.ctx || null }));
       try {
         const resp = await fetch(`${API_BASE}/project`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             player_name: task.name, prop_type: task.propId, book_line: task.line,
-            opponent_abbr: opp, team_abbr: task.team, is_home: task.isHome, rest_days: null,
+            opponent_abbr: opp, team_abbr: task.team, is_home: task.isHome,
+            rest_days: typeof taskRestDays === "number" ? taskRestDays : null,
             l5_avg: l5avg, l5_min: recent?.recent?.min || null, l5_stat_values: l5vals,
             high_leverage: /game\s*7|elimination|finals/i.test(game.title || ""),
             prior_residuals: priorResiduals,
             game_log_context: gameLogFull,
+            current_ctx: buildResidualCtx({
+              isHome: task.isHome, gameTitle: game?.title, restDays: taskRestDays,
+              outPlayers: injuryContext?.outPlayers || [],
+            }),
           }),
         });
         const data = await resp.json();
         if (data.success) {
           const proj = data.correlated_projection;
           const base = data.base_projection;
-          const ev   = +((proj / task.line - 1) * 100).toFixed(1);
+          const ev   = +((proj / task.line - 1) * 100).toFixed(2);
           const cv         = data.confidence_band?.cv ?? null;
           const poGp       = data.data_quality?.po_gp ?? 0;
           const q25        = data.breakdown?.xgb_q25 ?? null;
