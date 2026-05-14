@@ -572,27 +572,56 @@ export default function NBAPropsModel() {
       return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(tid));
     };
 
-    // Phase 1 — poll until server has warm data.
-    // New server: /api/ready returns {ready:true} when all 9 endpoints are cached.
-    // Old server: /api/ready → 404 → probe /api/players directly (90s window per try).
-    // Render cold start + NBA API warmup ≈ 2-4 min → 40 polls × 8s = 320s max.
-    const waitForReady = async () => {
+    // Phase 1 — wait for server warmup via SSE (1 persistent connection instead of 20 polls).
+    // Falls back to 8s polling if SSE isn't supported or returns 404.
+    // Render cold start + NBA API warmup ≈ 2-4 min; SSE heartbeats keep the connection alive.
+    const waitForReady = () => new Promise((resolve) => {
+      if (cancelled) return resolve(false);
+
+      // Try SSE first
+      let es;
+      try {
+        es = new EventSource(`${API_BASE}/ready-stream`);
+      } catch {
+        es = null;
+      }
+
+      if (es) {
+        const cleanup = () => { try { es.close(); } catch {} };
+        const timeout = setTimeout(() => { cleanup(); resolve(false); }, 330000);
+
+        es.onmessage = (e) => {
+          clearTimeout(timeout);
+          cleanup();
+          try {
+            const data = JSON.parse(e.data);
+            if (data.ready) return resolve(true);
+            // Warmup finished but players cache empty (failed) — fall through to poll
+          } catch {}
+          resolve(false);
+        };
+
+        es.onerror = () => {
+          clearTimeout(timeout);
+          cleanup();
+          // SSE not available (404 / network error) — fall back to polling
+          pollFallback().then(resolve);
+        };
+
+        return; // SSE path active — polling path below won't run
+      }
+
+      // No EventSource support — go straight to polling
+      pollFallback().then(resolve);
+    });
+
+    // Poll fallback: 8s interval, 40 attempts (320s max)
+    const pollFallback = async () => {
       for (let i = 0; i < 40; i++) {
         if (cancelled) return false;
         try {
           const resp = await fetchT(`${API_BASE}/ready`, 8000);
-          if (resp.status === 404) {
-            // Old server without /api/ready — probe /api/players to confirm warm cache.
-            // Note: players is returned as an object {name: {...}}, not an array — use d.count.
-            try {
-              const probe = await fetchT(`${API_BASE}/players`, 90000);
-              if (probe.ok) {
-                const d = await probe.json();
-                if (d?.success && (d.count > 10 || Object.keys(d.players || {}).length > 10)) return true;
-              }
-            } catch {}
-            // Old server responded but cache is cold — keep polling.
-          } else if (resp.ok) {
+          if (resp.ok) {
             const data = await resp.json();
             if (data.ready) return true;
           }
