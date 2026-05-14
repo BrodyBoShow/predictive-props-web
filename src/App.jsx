@@ -854,15 +854,19 @@ export default function NBAPropsModel() {
     const recentCache = {};
     const results = [];
     for (const task of tasks) {
-      const pid = effectiveDB[task.name]?.pid;
+      const dbEntry = effectiveDB[task.name];
+      const pid = dbEntry?.pid;
+      // Use the same key as single-player (effectiveDB[pkey].key) so player_name,
+      // prior_residuals, and server lookup all match exactly.
+      const playerKey = dbEntry?.key || task.name;
       if (!pid) { setBulkProgress(p => ({ ...p, done: p.done + 1 })); continue; }
-      if (!recentCache[task.name]) {
+      if (!recentCache[playerKey]) {
         try {
           const r = await fetch(`${API_BASE}/recent/${pid}`);
-          recentCache[task.name] = await r.json();
-        } catch { recentCache[task.name] = null; }
+          recentCache[playerKey] = await r.json();
+        } catch { recentCache[playerKey] = null; }
       }
-      const recent = recentCache[task.name];
+      const recent = recentCache[playerKey];
       const gameLogFull = recent?.gameLogFull || recent?.gameLog || [];
       const gameLog = recent?.gameLog || [];
       // Use server-aggregated L5 avg (same source as single-player)
@@ -876,12 +880,12 @@ export default function NBAPropsModel() {
       const opp = task.team === game.home ? game.away : game.home;
       // Pass actual rest days (same as single-player) — null causes wrong is_b2b/is_well_rested features
       const taskRestDays = game.restDays?.[task.team] ?? null;
-      const priorResiduals = getResiduals(task.name, task.propId).map(r => ({ projected: r.projected, actual: r.actual, ctx: r.ctx || null }));
+      const priorResiduals = getResiduals(playerKey, task.propId).map(r => ({ projected: r.projected, actual: r.actual, ctx: r.ctx || null }));
       try {
         const resp = await fetch(`${API_BASE}/project`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            player_name: task.name, prop_type: task.propId, book_line: task.line,
+            player_name: playerKey, prop_type: task.propId, book_line: task.line,
             opponent_abbr: opp, team_abbr: task.team, is_home: task.isHome,
             rest_days: typeof taskRestDays === "number" ? taskRestDays : null,
             l5_avg: l5avg, l5_min: recent?.recent?.min || null, l5_stat_values: l5vals,
@@ -915,7 +919,7 @@ export default function NBAPropsModel() {
           })();
           const pulledAt = bulkLinePulledAt[task.name]?.[task.propId] ?? null;
           results.push({
-            name: task.name, team: task.team, propId: task.propId, line: task.line,
+            name: playerKey, team: task.team, propId: task.propId, line: task.line,
             proj, base, ev, cv, grade, poGp,
             lean: proj > task.line ? "OVER" : "UNDER",
             band: data.confidence_band ?? null,
@@ -982,7 +986,7 @@ export default function NBAPropsModel() {
     results.sort((a, b) => (gradeOrder[a.grade] - gradeOrder[b.grade]) || (Math.abs(b.ev) - Math.abs(a.ev)));
     setBulkProjResults(results);
     setBulkRunning(false);
-  }, [game, bulkRosterPlayers, bulkLines, bulkProps, effectiveDB, getResiduals]);
+  }, [game, bulkRosterPlayers, bulkLines, bulkProps, effectiveDB, getResiduals, buildResidualCtx, injuryContext]);
 
   // ── Bulk live-line fetch — pulls Odds API slate (server-cached) for all players × props ──
   const fetchBulkLines = useCallback(async () => {
