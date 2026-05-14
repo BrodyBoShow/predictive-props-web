@@ -596,7 +596,9 @@ export default function NBAPropsModel() {
           try {
             const data = JSON.parse(e.data);
             if (data.ready) return resolve(true);
-            // Warmup finished but players cache empty (failed) — fall through to poll
+            // Server up but players build failed — proceed to Phase 2 anyway.
+            // Individual endpoints have their own _warmup_done.wait() fallback.
+            if (data.warmupDone || data.failed) return resolve(true);
           } catch {}
           resolve(false);
         };
@@ -624,6 +626,8 @@ export default function NBAPropsModel() {
           if (resp.ok) {
             const data = await resp.json();
             if (data.ready) return true;
+            // Server alive but players build failed — don't stay stuck in poll loop
+            if (data.warmupDone && !data.ready) return true;
           }
         } catch {}
         if (cancelled) return false;
