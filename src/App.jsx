@@ -856,9 +856,10 @@ export default function NBAPropsModel() {
     for (const task of tasks) {
       const dbEntry = effectiveDB[task.name];
       const pid = dbEntry?.pid;
-      // Use the same key as single-player (effectiveDB[pkey].key) so player_name,
-      // prior_residuals, and server lookup all match exactly.
-      const playerKey = dbEntry?.key || task.name;
+      // Normalize via lookupPlayer (same as single-player) so the key is lowercase-normalized.
+      // This ensures player_name, prior_residuals localStorage key, and server lookup all match.
+      // e.g. livePlayerDB key "De'Aaron Fox" → lookupPlayer → "de'aaron fox" (matches residuals).
+      const playerKey = lookupPlayer(task.name, effectiveDB)?.key || task.name;
       if (!pid) { setBulkProgress(p => ({ ...p, done: p.done + 1 })); continue; }
       if (!recentCache[playerKey]) {
         try {
