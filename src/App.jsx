@@ -933,10 +933,10 @@ export default function NBAPropsModel() {
       setBulkProgress(p => ({ ...p, done: p.done + 1 }));
       await new Promise(r => setTimeout(r, 120));
     }
-    // ── Team-total normalization (pts) — regress to base when sum exceeds Vegas implied ──
-    // For each team with ≥3 tracked points props, cap aggregate at 90% of implied total
-    // (rest = deep bench). When sum exceeds cap, pull each player's proj toward its base
-    // proportional to overage (proj - base). Preserves relative ranking; trims aggregate.
+    // ── Team-over warning (pts) — flag when ≥75% of tracked players project OVER ──
+    // XGBoost produces individually-calibrated predictions; team-total normalization
+    // was deflating them and causing bulk ≠ single divergence. Removed scaling;
+    // keeping the warning flag so the UI can alert when most of a team shows OVER.
     const byTeam = {};
     results.forEach(r => {
       if (r.propId === "points") {
@@ -948,38 +948,6 @@ export default function NBAPropsModel() {
       if (rows.length < 3) return;
       const overCount = rows.filter(r => r.lean === "OVER").length;
       const flagWarn  = overCount / rows.length >= 0.75;
-
-      const ctx = rows.find(r => r.gameCtx?.total != null)?.gameCtx;
-      if (ctx) {
-        // Spread is from team's perspective (negative = favorite). null → even split.
-        const spread      = ctx.spread != null ? ctx.spread : 0;
-        const teamImplied = (ctx.total - spread) / 2;
-        const cap         = teamImplied * 0.90;
-        const sumProj     = rows.reduce((s, r) => s + r.proj, 0);
-        if (sumProj > cap) {
-          // Only positive overage (proj > base) can be scaled down. Negative overage
-          // (proj < base) is left alone — burden falls on over-projected players.
-          const totalOverage = rows.reduce((s, r) => s + Math.max(0, r.proj - (r.base || r.proj)), 0);
-          const excess       = sumProj - cap;
-          const scaleDown    = totalOverage > 0 ? Math.min(1.0, excess / totalOverage) : 0;
-          rows.forEach(r => {
-            const overage  = Math.max(0, r.proj - (r.base || r.proj));
-            if (overage <= 0) { r.scaled = true; return; }
-            const newProj  = +(r.proj - overage * scaleDown).toFixed(1);
-            r.proj   = newProj;
-            r.ev     = +((newProj / r.line - 1) * 100).toFixed(1);
-            r.lean   = newProj > r.line ? "OVER" : "UNDER";
-            r.scaled = true;
-            r.grade  = computeGrade({ evPct: r.ev, cv: r.cv, poGp: r.poGp || 0, projection: newProj, baseline: r.base });
-            if (r.ev && r.line) {
-              const p_win = Math.min(0.85, Math.max(0.15, (r.ev / 100 + 1) / 2));
-              const b     = Math.abs(r.ev) / 100;
-              const k     = b > 0 ? Math.max(0, (b * p_win - (1 - p_win)) / b) : 0;
-              r.qKelly = +(k * 0.25 * 100).toFixed(1);
-            }
-          });
-        }
-      }
       if (flagWarn) rows.forEach(r => { r.teamOverWarn = true; });
     });
 
