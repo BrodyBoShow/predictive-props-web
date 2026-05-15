@@ -882,6 +882,8 @@ export default function NBAPropsModel() {
       // Pass actual rest days (same as single-player) — null causes wrong is_b2b/is_well_rested features
       const taskRestDays = game.restDays?.[task.team] ?? null;
       const priorResiduals = getResiduals(playerKey, task.propId).map(r => ({ projected: r.projected, actual: r.actual, ctx: r.ctx || null }));
+      const last3 = priorResiduals.slice(-3);
+      const driftDown = last3.length >= 3 && (last3.reduce((s, r) => s + ((r.actual ?? 0) - (r.projected ?? 0)), 0) / 3) < -2;
       try {
         const resp = await fetch(`${API_BASE}/project`, {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -910,24 +912,32 @@ export default function NBAPropsModel() {
           const q75        = data.breakdown?.xgb_q75 ?? null;
           const trustScore = data.confidence_band?.trust_score ?? null;
           const injAdj     = data.breakdown?.injCascadeAdj ?? 0;
-          const grade = computeGrade({ evPct: ev, cv, poGp, projection: proj, baseline: base, q25, q75, line: task.line, monteCarlo: data.monte_carlo ?? null, trustScore, injCascadeAdj: injAdj });
-          // Quarter-Kelly stake recommendation
+          const mc = data.monte_carlo ?? null;
+          const grade = computeGrade({ evPct: ev, cv, poGp, projection: proj, baseline: base, q25, q75, line: task.line, monteCarlo: mc, trustScore, injCascadeAdj: injAdj, driftDown });
+          const modelLift = base > 0 ? Math.abs((proj - base) / base) : 0;
+          // Quarter-Kelly: uses MC win probability (real signal) vs. EV-derived p_win (circular).
+          // b = 10/11 assumes standard -110 juice.
+          const isOv = proj > task.line;
+          const mcSideProb = mc ? (isOv ? mc.prob_over : mc.prob_under) : null;
           const qKelly = (() => {
-            if (!ev || !task.line) return null;
-            const p_win = Math.min(0.85, Math.max(0.15, (ev / 100 + 1) / 2));
-            const b     = Math.abs(ev) / 100;
-            const k     = b > 0 ? Math.max(0, (b * p_win - (1 - p_win)) / b) : 0;
+            if (!mcSideProb || !task.line) return null;
+            const p = Math.min(0.85, Math.max(0.15, mcSideProb));
+            const b = 10 / 11;
+            const k = Math.max(0, (b * p - (1 - p)) / b);
             return +(k * 0.25 * 100).toFixed(1);
           })();
           const pulledAt = bulkLinePulledAt[task.name]?.[task.propId] ?? null;
           results.push({
             name: playerKey, team: task.team, propId: task.propId, line: task.line,
-            proj, base, ev, cv, grade, poGp,
+            proj, base, ev, cv, grade, poGp, modelLift,
             lean: proj > task.line ? "OVER" : "UNDER",
             band: data.confidence_band ?? null,
             gameCtx: data.game_context ?? null,
+            monteCarlo: mc,
+            mcSideProb,
             qKelly,
             pulledAt,
+            driftDown,
           });
         }
       } catch {}
@@ -1227,7 +1237,7 @@ export default function NBAPropsModel() {
   // correctly while the book sits below them (BET IT), OR (b) model is reaching —
   // adjustments pushed projection far above the player's own baseline (SKIP IT).
   // modelLift distinguishes these: tiny lift = book is wrong; big lift = model is.
-  const computeGrade = ({ evPct, cv, poGp, projection, baseline, q25 = null, q75 = null, line = null, monteCarlo = null, trustScore = null, injCascadeAdj = 0 }) => {
+  const computeGrade = ({ evPct, cv, poGp, projection, baseline, q25 = null, q75 = null, line = null, monteCarlo = null, trustScore = null, injCascadeAdj = 0, driftDown = false }) => {
     const absEv     = Math.abs(evPct || 0);
     const modelLift = baseline > 0 ? Math.abs(projection - baseline) / baseline : 0;
     const trustOk   = trustScore != null ? trustScore >= 70 : (cv != null && cv < 0.30);
@@ -1240,18 +1250,19 @@ export default function NBAPropsModel() {
     const mcProb  = isOver ? (monteCarlo?.prob_over ?? null) : (monteCarlo?.prob_under ?? null);
     const mcOk    = mcProb == null || mcProb >= 0.585;
     // Directional quantile safety: floor doesn't collapse (over) / ceiling stays compressed (under).
-    // Replaces strict q25 > line (~75% win prob) with an economically sound 10% buffer.
     const quantileSafe = line == null || line <= 0
       ? true
       : isOver
         ? (q25 == null || q25 >= line * 0.90)
         : (q75 == null || q75 <= line * 1.10);
-    // High model lift is allowed for LOCK when it's driven by structural edge (pace/matchup/injury cascade).
-    // Removed hard 10% cap; lift now only gates ACTIONABLE and below.
-    if (absEv > 10 && trustOk && sampleOk && quantileSafe && mcOk) return "LOCK";
-    if (absEv > 7  && (cvOk40 || !cvKnown) && sampleOk && liftOk15) return "ACTIONABLE";
-    if (absEv > 4  && liftOk20)                                       return "WATCH";
-    return "SKIP";
+    const order = ["LOCK", "ACTIONABLE", "WATCH", "SKIP"];
+    let tier = "SKIP";
+    if (absEv > 10 && trustOk && sampleOk && quantileSafe && mcOk) tier = "LOCK";
+    else if (absEv > 7 && (cvOk40 || !cvKnown) && sampleOk && liftOk15 && mcOk) tier = "ACTIONABLE";
+    else if (absEv > 4 && liftOk20) tier = "WATCH";
+    // Systematic over-projection: model has missed high 3+ times in a row → drop one tier.
+    if (driftDown) tier = order[Math.min(order.indexOf(tier) + 1, 3)];
+    return tier;
   };
 
   const run = useCallback(async () => {
@@ -1299,6 +1310,9 @@ export default function NBAPropsModel() {
 
     // ── Phase B: server Correlation Logic Layer (async, enriches the result) ──
     // Only fires when backend is live — falls back to client result gracefully.
+    const spResiduals = getResiduals(player.key, prop.id);
+    const spLast3 = spResiduals.slice(-3);
+    const spDriftDown = spLast3.length >= 3 && (spLast3.reduce((s, r) => s + ((r.actual ?? 0) - (r.projected ?? 0)), 0) / 3) < -2;
     if (nbaApiStatus === "live") {
       try {
         const ctrl = new AbortController();
@@ -1354,6 +1368,7 @@ export default function NBAPropsModel() {
               monteCarlo:    sd.monte_carlo ?? null,
               trustScore:    sd.confidence_band?.trust_score ?? null,
               injCascadeAdj: sd.breakdown?.injCascadeAdj ?? 0,
+              driftDown:     spDriftDown,
             });
             // Server drivers replace the client impactList in the terminal panel
             const serverDrivers = (sd.drivers || []).map(d => ({ name: d, impact: null }));
@@ -1842,6 +1857,53 @@ export default function NBAPropsModel() {
                     );
                   })()}
 
+                  {/* ── Two-axis spotlight ── */}
+                  {(() => {
+                    const highFloor = bulkProjResults.filter(r => {
+                      const ts = r.band?.trust_score ?? null;
+                      const mcP = r.mcSideProb ?? null;
+                      return (r.cv != null && r.cv < 0.35 || ts != null && ts >= 75) && (mcP == null || mcP >= 0.55);
+                    });
+                    const highAlpha = bulkProjResults.filter(r =>
+                      Math.abs(r.ev) > 10 && r.modelLift != null && r.modelLift > 0.15
+                    );
+                    if (!highFloor.length && !highAlpha.length) return null;
+                    const Row = ({ r, accent }) => (
+                      <div style={{ padding:"7px 16px", borderBottom:"1px solid rgba(255,255,255,.03)", display:"flex", gap:10, alignItems:"center", flexWrap:"wrap", fontFamily:"'Azeret Mono',monospace", fontSize:11 }}>
+                        <span style={{ color:"#e8f0ff", minWidth:130, fontWeight:600 }}>{r.name.split(" ").map(w=>w[0].toUpperCase()+w.slice(1)).join(" ")}</span>
+                        <span style={{ color:"#475569", minWidth:30 }}>{r.team}</span>
+                        <span style={{ color:"#64748b", minWidth:55 }}>{PROP_LABELS[r.propId]}</span>
+                        <span style={{ color: r.lean==="OVER"?"#10b981":"#ef4444", fontWeight:700, minWidth:44 }}>{r.lean}</span>
+                        <span style={{ color:"#94a3b8" }}>line {r.line}</span>
+                        <span style={{ color:"#c8d4e8" }}>proj <b>{r.proj.toFixed(1)}</b></span>
+                        <span style={{ color: accent, fontWeight:700 }}>EV {r.ev>=0?"+":""}{r.ev}%</span>
+                        {r.cv != null && <span style={{ color:"#475569" }}>CV {r.cv.toFixed(2)}</span>}
+                        {r.band?.trust_score != null && <span style={{ color: r.band.trust_score>=70?"#10b981":"#f59e0b" }}>TRUST {r.band.trust_score}</span>}
+                        {r.qKelly != null && r.qKelly > 0 && <span style={{ color:"#818cf8" }}>¼K {r.qKelly}%</span>}
+                      </div>
+                    );
+                    return (
+                      <div style={{ borderTop:"1px solid rgba(255,255,255,.06)", marginBottom:8 }}>
+                        {highFloor.length > 0 && (
+                          <div>
+                            <div style={{ padding:"7px 16px", background:"rgba(16,185,129,.06)", borderBottom:"1px solid rgba(255,255,255,.05)", fontFamily:"'Azeret Mono',monospace", fontSize:10, color:"#10b981", letterSpacing:".14em", fontWeight:700 }}>
+                              HIGH FLOOR ({highFloor.length}) — tight variance, consistent hitter
+                            </div>
+                            {highFloor.map((r,i) => <Row key={i} r={r} accent="#10b981" />)}
+                          </div>
+                        )}
+                        {highAlpha.length > 0 && (
+                          <div>
+                            <div style={{ padding:"7px 16px", background:"rgba(245,158,11,.06)", borderBottom:"1px solid rgba(255,255,255,.05)", fontFamily:"'Azeret Mono',monospace", fontSize:10, color:"#f59e0b", letterSpacing:".14em", fontWeight:700 }}>
+                              HIGH ALPHA ({highAlpha.length}) — structural edge, play smaller
+                            </div>
+                            {highAlpha.map((r,i) => <Row key={i} r={r} accent="#f59e0b" />)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   {/* ── Results table ── */}
                   <div style={{ borderTop:"1px solid rgba(255,255,255,.06)" }}>
                     {["LOCK","ACTIONABLE","WATCH","SKIP"].map(tier => {
@@ -2117,9 +2179,12 @@ export default function NBAPropsModel() {
                   ))}
                   {/* ¼ Kelly */}
                   {l > 0 && finalEvPct !== 0 && (() => {
-                    const p_win = Math.min(0.85, Math.max(0.15, (finalEvPct / 100 + 1) / 2));
-                    const b = Math.abs(finalEvPct) / 100;
-                    const k = b > 0 ? Math.max(0, (b * p_win - (1 - p_win)) / b) : 0;
+                    const spMc = serverCorr?.monteCarlo ?? null;
+                    const spIsOver = finalEvPct > 0;
+                    const spMcProb = spMc ? (spIsOver ? spMc.prob_over : spMc.prob_under) : null;
+                    const p = spMcProb != null ? Math.min(0.85, Math.max(0.15, spMcProb)) : Math.min(0.85, Math.max(0.15, (finalEvPct / 100 + 1) / 2));
+                    const b = spMcProb != null ? (10 / 11) : Math.abs(finalEvPct) / 100;
+                    const k = b > 0 ? Math.max(0, (b * p - (1 - p)) / b) : 0;
                     const qk = +(k * 0.25 * 100).toFixed(1);
                     if (qk <= 0) return null;
                     return (
