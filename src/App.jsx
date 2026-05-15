@@ -907,9 +907,10 @@ export default function NBAPropsModel() {
           const cv         = data.confidence_band?.cv ?? null;
           const poGp       = data.data_quality?.po_gp ?? 0;
           const q25        = data.breakdown?.xgb_q25 ?? null;
+          const q75        = data.breakdown?.xgb_q75 ?? null;
           const trustScore = data.confidence_band?.trust_score ?? null;
           const injAdj     = data.breakdown?.injCascadeAdj ?? 0;
-          const grade = computeGrade({ evPct: ev, cv, poGp, projection: proj, baseline: base, q25, line: task.line, monteCarlo: data.monte_carlo ?? null, trustScore, injCascadeAdj: injAdj });
+          const grade = computeGrade({ evPct: ev, cv, poGp, projection: proj, baseline: base, q25, q75, line: task.line, monteCarlo: data.monte_carlo ?? null, trustScore, injCascadeAdj: injAdj });
           // Quarter-Kelly stake recommendation
           const qKelly = (() => {
             if (!ev || !task.line) return null;
@@ -1226,30 +1227,30 @@ export default function NBAPropsModel() {
   // correctly while the book sits below them (BET IT), OR (b) model is reaching —
   // adjustments pushed projection far above the player's own baseline (SKIP IT).
   // modelLift distinguishes these: tiny lift = book is wrong; big lift = model is.
-  const computeGrade = ({ evPct, cv, poGp, projection, baseline, q25 = null, line = null, monteCarlo = null, trustScore = null, injCascadeAdj = 0 }) => {
+  const computeGrade = ({ evPct, cv, poGp, projection, baseline, q25 = null, q75 = null, line = null, monteCarlo = null, trustScore = null, injCascadeAdj = 0 }) => {
     const absEv     = Math.abs(evPct || 0);
     const modelLift = baseline > 0 ? Math.abs(projection - baseline) / baseline : 0;
-    // #5: trust_score (0–100, server-computed) replaces raw CV cut for LOCK tier —
-    //     natively balances sample depth + dispersion; falls back to cv < 0.30 if absent.
     const trustOk   = trustScore != null ? trustScore >= 70 : (cv != null && cv < 0.30);
     const cvOk40    = cv != null && cv < 0.40;
     const cvKnown   = cv != null;
     const sampleOk  = (poGp || 0) >= 3;
-    // #4: lift cap exception — validated injury cascade means high lift is a real edge,
-    //     not model noise. Allow lifts above 10% when a teammate scratch drives usage.
-    const liftOk10  = modelLift < 0.10 || (injCascadeAdj || 0) > 7;
     const liftOk15  = modelLift < 0.15;
     const liftOk20  = modelLift < 0.20;
-    // q25 floor: model's pessimistic scenario must still clear the line.
-    const q25SafeOver = q25 == null || line == null || line <= 0 || q25 > line;
-    // #2: Monte Carlo empirical probability gate — accounts for integer-stat distribution
-    //     skew that raw EV% misses. Require ≥58.5% simulated win probability.
     const isOver  = projection > (line || 0);
     const mcProb  = isOver ? (monteCarlo?.prob_over ?? null) : (monteCarlo?.prob_under ?? null);
     const mcOk    = mcProb == null || mcProb >= 0.585;
-    if (absEv > 10 && trustOk && sampleOk && liftOk10 && q25SafeOver && mcOk) return "LOCK";
-    if (absEv > 7  && (cvOk40 || !cvKnown) && sampleOk && liftOk15)           return "ACTIONABLE";
-    if (absEv > 4  && liftOk20)                                                 return "WATCH";
+    // Directional quantile safety: floor doesn't collapse (over) / ceiling stays compressed (under).
+    // Replaces strict q25 > line (~75% win prob) with an economically sound 10% buffer.
+    const quantileSafe = line == null || line <= 0
+      ? true
+      : isOver
+        ? (q25 == null || q25 >= line * 0.90)
+        : (q75 == null || q75 <= line * 1.10);
+    // High model lift is allowed for LOCK when it's driven by structural edge (pace/matchup/injury cascade).
+    // Removed hard 10% cap; lift now only gates ACTIONABLE and below.
+    if (absEv > 10 && trustOk && sampleOk && quantileSafe && mcOk) return "LOCK";
+    if (absEv > 7  && (cvOk40 || !cvKnown) && sampleOk && liftOk15) return "ACTIONABLE";
+    if (absEv > 4  && liftOk20)                                       return "WATCH";
     return "SKIP";
   };
 
@@ -1348,6 +1349,7 @@ export default function NBAPropsModel() {
               projection:    sProj,
               baseline:      sd.base_projection,
               q25:           sd.breakdown?.xgb_q25 ?? null,
+              q75:           sd.breakdown?.xgb_q75 ?? null,
               line:          l,
               monteCarlo:    sd.monte_carlo ?? null,
               trustScore:    sd.confidence_band?.trust_score ?? null,
