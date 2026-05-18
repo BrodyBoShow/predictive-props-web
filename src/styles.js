@@ -461,81 +461,66 @@ export const S = `
   }
   .float-icon:hover{transform:scale(1.12);}
 
-  /* ── PROP CARDS GRID ────────────────────────────────────────────────── */
-  .prop-cards-grid{
+  /* ── BET CARDS — bulk winning props board ──────────────────────────── */
+  .bet-cards-grid{
     display:grid;
-    grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
-    gap:14px;
-    margin-top:12px;
+    grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
+    gap:10px;
   }
-  .prop-card{
-    background:rgba(15,23,42,0.65);
+  .bet-card{
+    background:rgba(8,15,30,0.80);
+    border:1px solid;
     border-radius:12px;
-    padding:16px;
+    overflow:hidden;
     display:flex;
     flex-direction:column;
-    gap:12px;
-    position:relative;
-    overflow:hidden;
-    transition:transform .18s ease,box-shadow .18s ease;
+    cursor:pointer;
+    transition:transform .15s ease,box-shadow .15s ease;
     font-family:'Azeret Mono',monospace;
   }
-  .prop-card:hover{
-    transform:translateY(-2px);
-    box-shadow:0 8px 24px rgba(0,0,0,.45);
+  .bet-card:hover{transform:translateY(-3px);box-shadow:0 12px 36px rgba(0,0,0,.55);}
+  .bet-card-stripe{height:3px;width:100%;flex-shrink:0;}
+  .bet-card-head{padding:10px 13px 6px;}
+  .bet-card-grade{
+    font-size:8px;font-weight:800;letter-spacing:.2em;
+    display:block;margin-bottom:3px;
   }
-  .prop-card-header{
+  .bet-card-player{
+    font-size:13px;font-weight:700;color:#e2e8f0;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;
+  }
+  .bet-card-sub{font-size:9px;color:#475569;margin-top:2px;display:block;letter-spacing:.04em;}
+  .bet-card-core{
+    padding:9px 13px;
+    background:rgba(0,0,0,.25);
     display:flex;
-    justify-content:space-between;
-    align-items:flex-start;
-    gap:8px;
-  }
-  .prop-card-name{
-    color:#e8f0ff;
-    font-weight:700;
-    font-size:14px;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-  }
-  .prop-card-meta{
-    color:#64748b;
-    font-size:10px;
-    margin-top:3px;
-    letter-spacing:.05em;
-  }
-  .prop-card-body{
-    display:flex;
-    flex-direction:row;
-    justify-content:space-between;
     align-items:center;
-    background:rgba(0,0,0,.22);
-    border-radius:8px;
-    padding:10px 14px;
-  }
-  .prop-card-stat{
-    text-align:center;
-    display:flex;
-    flex-direction:column;
-    gap:3px;
-  }
-  .prop-card-stat-label{
-    color:#475569;
-    font-size:9px;
-    letter-spacing:.1em;
-  }
-  .prop-card-stat-val{
-    color:#c8d4e8;
-    font-size:20px;
-    font-weight:700;
-  }
-  .prop-card-footer{
-    display:flex;
     justify-content:space-between;
-    align-items:center;
-    font-size:11px;
-    border-top:1px solid rgba(255,255,255,.05);
-    padding-top:8px;
-    margin-top:2px;
+    flex:1;
   }
+  .bet-card-dir{font-size:10px;font-weight:800;letter-spacing:.1em;}
+  .bet-card-nums{display:flex;align-items:baseline;gap:4px;margin-top:3px;}
+  .bet-card-line{color:#475569;font-size:11px;}
+  .bet-card-arr{color:#1e293b;font-size:10px;}
+  .bet-card-proj{font-size:18px;font-weight:800;}
+  .bet-card-delta{font-size:9px;font-weight:600;margin-top:2px;}
+  .bet-card-ev{font-size:15px;font-weight:800;line-height:1;}
+  .bet-card-ev-label{font-size:8px;color:#334155;margin-top:2px;letter-spacing:.1em;}
+  .bet-card-foot{
+    padding:7px 13px;
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    border-top:1px solid rgba(255,255,255,.04);
+  }
+  .bet-card-tscore{font-size:10px;font-weight:600;}
+  .bet-card-kelly{font-size:9px;color:#818cf8;}
+  .bet-card-flag{font-size:9px;}
+  /* Watch rows */
+  .bet-watch-row{
+    display:flex;align-items:center;
+    padding:6px 0;
+    border-bottom:1px solid rgba(255,255,255,.03);
+    font-family:'Azeret Mono',monospace;font-size:11px;
+    cursor:pointer;transition:background .1s;border-radius:4px;
+  }
+  .bet-watch-row:hover{background:rgba(245,158,11,.05);}
 `;

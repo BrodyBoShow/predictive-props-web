@@ -280,74 +280,59 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
 }
 
 
-// ── WinningPropCard — bulk LOCK/ACTIONABLE card ───────────────────────────────
-const GRADE_PALETTE = {
-  LOCK:       { bg:"rgba(168,85,247,.12)", border:"rgba(168,85,247,.35)", text:"#a855f7" },
-  ACTIONABLE: { bg:"rgba(59,130,246,.12)",  border:"rgba(59,130,246,.35)",  text:"#3b82f6" },
-  WATCH:      { bg:"rgba(245,158,11,.10)",  border:"rgba(245,158,11,.3)",   text:"#f59e0b" },
-  SKIP:       { bg:"rgba(71,85,105,.10)",   border:"rgba(71,85,105,.3)",    text:"#475569" },
-};
+// ── BetCard — bulk winning props board ────────────────────────────────────────
+const GRADE_COLOR = { LOCK:"#a855f7", ACTIONABLE:"#3b82f6", WATCH:"#f59e0b", SKIP:"#475569" };
 
-const WinningPropCard = ({ r, propLabels, onOpen }) => {
-  const isOver      = r.lean === "OVER";
-  const accent      = isOver ? "#10b981" : "#ef4444";
-  const gradeColor  = r.grade === "LOCK" ? "#a855f7" : "#3b82f6";
-  const displayName = r.name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-  const cb = r.band;
+const BetCard = ({ r, propLabels, onOpen }) => {
+  const isOver  = r.lean === "OVER";
+  const ac      = isOver ? "#10b981" : "#ef4444";
+  const gc      = GRADE_COLOR[r.grade] || "#475569";
+  const fmt     = n => n.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  const trust   = r.band?.trust_score ?? null;
+  const trustC  = trust != null ? (trust >= 70 ? "#10b981" : trust >= 40 ? "#f59e0b" : "#ef4444") : null;
+  const delta   = r.proj - r.line;
 
   return (
-    <div className="prop-card" style={{ border:`1px solid ${gradeColor}40` }}>
-      {/* Accent top stripe */}
-      <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:gradeColor }} />
-
-      <div className="prop-card-header">
-        <div style={{ minWidth:0 }}>
-          <div className="prop-card-name" title={displayName}>{displayName}</div>
-          <div className="prop-card-meta">
-            {r.team} · {propLabels[r.propId]}
-            {r.sharedConflict && <span style={{ color:"#f59e0b", marginLeft:5 }} title="Teammate also projected high — shared resource">⚡⚠</span>}
-            {r.driftDown      && <span style={{ color:"#f59e0b", marginLeft:5 }} title="Model over-projected recently">↘</span>}
+    <div className="bet-card" style={{ borderColor:`${gc}40` }} onClick={onOpen}>
+      <div className="bet-card-stripe" style={{ background:`linear-gradient(90deg,${gc},${gc}55)` }} />
+      <div className="bet-card-head">
+        <span className="bet-card-grade" style={{ color:gc }}>{r.grade}</span>
+        <span className="bet-card-player">{fmt(r.name)}</span>
+        <span className="bet-card-sub">
+          {r.team} · {propLabels[r.propId]}
+          {r.sharedConflict && <span title="Teammate conflict"> ⚡</span>}
+          {r.driftDown      && <span title="Recent over-projection"> ↘</span>}
+        </span>
+      </div>
+      <div className="bet-card-core">
+        {/* Left: direction + line → proj */}
+        <div>
+          <div className="bet-card-dir" style={{ color:ac }}>{isOver ? "OVER" : "UNDER"}</div>
+          <div className="bet-card-nums">
+            <span className="bet-card-line">{r.line}</span>
+            <span className="bet-card-arr">→</span>
+            <span className="bet-card-proj" style={{ color:ac }}>{r.proj.toFixed(1)}</span>
           </div>
+          <div className="bet-card-delta" style={{ color:ac }}>{delta >= 0 ? "+" : ""}{delta.toFixed(1)}</div>
         </div>
-        <div style={{ background:`${gradeColor}15`, color:gradeColor, padding:"4px 8px",
-          borderRadius:6, fontSize:10, fontWeight:800, letterSpacing:".05em", flexShrink:0 }}>
-          {r.grade === "ACTIONABLE" ? "ACT" : r.grade}
+        {/* Right: EV — the primary edge signal */}
+        <div style={{ textAlign:"right" }}>
+          <div className="bet-card-ev" style={{ color:gc }}>
+            {r.ev >= 0 ? "+" : ""}{r.ev}%
+          </div>
+          <div className="bet-card-ev-label">EV EDGE</div>
         </div>
       </div>
-
-      <div className="prop-card-body">
-        <div className="prop-card-stat">
-          <div className="prop-card-stat-label">LINE</div>
-          <div className="prop-card-stat-val">{r.line}</div>
-        </div>
-        <div style={{ color:accent, fontSize:16, fontWeight:800, letterSpacing:".05em" }}>
-          {isOver ? "OVER ↗" : "UNDER ↘"}
-        </div>
-        <div className="prop-card-stat">
-          <div className="prop-card-stat-label">PROJ</div>
-          <div className="prop-card-stat-val" style={{ color:accent }}>{r.proj.toFixed(1)}</div>
-        </div>
-      </div>
-
-      {/* Mini confidence bar */}
-      {cb && (() => {
-        const bMin = Math.max(0, cb.floor-1), bMax = cb.ceiling+1, span = bMax-bMin||1;
-        const pct = v => `${Math.min(100,Math.max(0,((v-bMin)/span)*100)).toFixed(1)}%`;
-        return (
-          <div style={{ position:"relative", height:6, background:"rgba(99,102,241,.08)", borderRadius:3, border:"1px solid rgba(99,102,241,.15)", margin:"0 2px" }}>
-            <div style={{ position:"absolute", left:pct(cb.floor), right:`${(100-parseFloat(pct(cb.ceiling))).toFixed(1)}%`, top:0, bottom:0, background:"rgba(99,102,241,.22)", borderRadius:2 }} />
-            <div style={{ position:"absolute", left:pct(r.proj), top:-3, width:12, height:12, borderRadius:"50%", background:accent, transform:"translateX(-50%)", border:"2px solid #0d1627" }} />
-            {r.line > 0 && <div style={{ position:"absolute", left:pct(r.line), top:-4, width:2, height:14, background:"#f59e0b", borderRadius:1 }} />}
-          </div>
-        );
-      })()}
-
-      <div className="prop-card-footer">
-        <span style={{ color:accent, fontWeight:700 }}>EV {r.ev >= 0 ? "+" : ""}{r.ev}%</span>
-        {r.qKelly > 0 && <span style={{ color:"#818cf8", fontWeight:600 }}>¼K {r.qKelly}%</span>}
+      <div className="bet-card-foot">
+        {trust != null && <span className="bet-card-tscore" style={{ color:trustC }}>T{trust}</span>}
+        {r.qKelly > 0  && <span className="bet-card-kelly">¼K {r.qKelly}%</span>}
+        {r.sharedConflict && <span className="bet-card-flag" style={{ color:"#f59e0b" }} title="Teammate conflict">⚡</span>}
+        {r.driftDown      && <span className="bet-card-flag" style={{ color:"#f59e0b" }} title="Recent over-projection">↘</span>}
         {onOpen && (
-          <button onClick={onOpen} style={{ padding:"2px 9px", background:"rgba(99,102,241,.1)",
-            border:"1px solid rgba(99,102,241,.25)", borderRadius:4, color:"#818cf8", cursor:"pointer", fontSize:8 }}>
+          <button onClick={e => { e.stopPropagation(); onOpen(); }}
+            style={{ marginLeft:"auto", padding:"2px 8px", background:"rgba(99,102,241,.08)",
+              border:"1px solid rgba(99,102,241,.2)", borderRadius:4, color:"#6366f1", cursor:"pointer", fontSize:8,
+              fontFamily:"'Azeret Mono',monospace" }}>
             OPEN →
           </button>
         )}
@@ -2060,96 +2045,92 @@ export default function NBAPropsModel() {
                     );
                   })()}
 
-                  {/* ── Results — tier-grouped rows ── */}
+                  {/* ── Results — Winning Props Board ── */}
                   {bulkProjResults.length > 0 && (() => {
-                    const TIER_CONFIG = {
-                      LOCK:       { color:"#a855f7", label:"LOCK" },
-                      ACTIONABLE: { color:"#3b82f6", label:"ACTIONABLE" },
-                      WATCH:      { color:"#f59e0b", label:"WATCH" },
-                      SKIP:       { color:"#475569", label:"SKIP" },
-                    };
-                    const fmt = name => name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+                    const fmt   = n => n.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+                    const locks = bulkProjResults.filter(r => r.grade === "LOCK");
+                    const acts  = bulkProjResults.filter(r => r.grade === "ACTIONABLE");
+                    const watch = bulkProjResults.filter(r => r.grade === "WATCH");
+                    const skip  = bulkProjResults.filter(r => r.grade === "SKIP");
+                    const best  = [...locks, ...acts];
                     return (
                       <div style={{ borderTop:"1px solid rgba(255,255,255,.06)" }}>
-                        {["LOCK","ACTIONABLE","WATCH","SKIP"].map(tier => {
-                          const rows = bulkProjResults.filter(r => r.grade === tier);
-                          if (!rows.length) return null;
-                          const { color, label } = TIER_CONFIG[tier];
-                          return (
-                            <div key={tier}>
-                              {/* Tier header */}
-                              <div style={{ padding:"7px 16px", background:`${color}0e`,
-                                borderBottom:"1px solid rgba(255,255,255,.04)",
-                                borderTop:"1px solid rgba(255,255,255,.05)",
-                                display:"flex", alignItems:"center", gap:10,
-                                fontFamily:"'Azeret Mono',monospace" }}>
-                                <span style={{ fontSize:10, fontWeight:800, color, letterSpacing:".15em" }}>{label}</span>
-                                <span style={{ fontSize:9, color:"#334155" }}>{rows.length} prop{rows.length !== 1 ? "s" : ""}</span>
-                              </div>
-                              {/* Rows */}
-                              {rows.map((r, i) => {
-                                const isOver = r.lean === "OVER";
-                                const ac = isOver ? "#10b981" : "#ef4444";
-                                const ageMin = r.pulledAt ? Math.floor((Date.now() - r.pulledAt) / 60000) : null;
-                                return (
-                                  <div key={i}
-                                    style={{ padding:"8px 16px", borderBottom:"1px solid rgba(255,255,255,.03)",
-                                      display:"flex", alignItems:"center", gap:0,
-                                      fontFamily:"'Azeret Mono',monospace", fontSize:11,
-                                      transition:"background .12s", cursor:"default" }}
-                                    onMouseEnter={e => e.currentTarget.style.background = `${color}08`}
-                                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
 
-                                    {/* Player — fixed width */}
-                                    <span style={{ color:"#e2e8f0", fontWeight:600, width:150, flexShrink:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                                      {fmt(r.name)}
-                                    </span>
-
-                                    {/* Team + Prop tag */}
-                                    <span style={{ color:"#475569", width:34, flexShrink:0, fontSize:10 }}>{r.team}</span>
-                                    <span style={{ background:`${color}18`, color, border:`1px solid ${color}33`,
-                                      borderRadius:4, padding:"1px 7px", fontSize:9, fontWeight:700,
-                                      width:36, textAlign:"center", flexShrink:0, letterSpacing:".04em" }}>
-                                      {PROP_LABELS[r.propId]}
-                                    </span>
-
-                                    {/* Line → direction → Proj */}
-                                    <span style={{ color:"#475569", marginLeft:12, fontSize:10 }}>{r.line}</span>
-                                    <span style={{ color:ac, margin:"0 6px", fontSize:13, fontWeight:700 }}>{isOver ? "→" : "←"}</span>
-                                    <span style={{ color:ac, fontWeight:800, fontSize:13 }}>{r.proj.toFixed(1)}</span>
-                                    <span style={{ color:ac, fontSize:9, marginLeft:5, fontWeight:600, letterSpacing:".04em" }}>{isOver ? "OVER" : "UNDER"}</span>
-
-                                    {/* EV */}
-                                    <span style={{ color, fontWeight:700, marginLeft:14, minWidth:58 }}>
-                                      {r.ev >= 0 ? "+" : ""}{r.ev}%
-                                    </span>
-
-                                    {/* Flags */}
-                                    <span style={{ color:"#334155", fontSize:10, flex:1 }}>
-                                      {r.band?.trust_score != null && (
-                                        <span style={{ color: r.band.trust_score >= 70 ? "#10b981" : r.band.trust_score >= 40 ? "#f59e0b" : "#ef4444" }}>
-                                          T{r.band.trust_score}
-                                        </span>
-                                      )}
-                                      {r.qKelly > 0 && <span style={{ color:"#818cf8", marginLeft:8 }}>¼K {r.qKelly}%</span>}
-                                      {r.sharedConflict && <span style={{ color:"#f59e0b", marginLeft:6 }} title="Teammate conflict">⚡</span>}
-                                      {r.driftDown      && <span style={{ color:"#f59e0b", marginLeft:6 }} title="Recent over-projection">↘</span>}
-                                      {ageMin != null   && <span style={{ color: ageMin > 15 ? "#ef4444" : "#334155", marginLeft:6, fontSize:9 }}>{ageMin}m</span>}
-                                    </span>
-
-                                    {/* Open */}
-                                    <button onClick={() => { selGame(gid); setPname(fmt(r.name)); setPkey(r.name); setShowBulk(false); }}
-                                      style={{ flexShrink:0, padding:"2px 8px", background:"rgba(99,102,241,.08)",
-                                        border:"1px solid rgba(99,102,241,.2)", borderRadius:4, color:"#818cf8",
-                                        cursor:"pointer", fontSize:8, fontFamily:"'Azeret Mono',monospace" }}>
-                                      OPEN →
-                                    </button>
-                                  </div>
-                                );
-                              })}
+                        {/* ── BEST BETS card grid (LOCK + ACTIONABLE) ── */}
+                        {best.length > 0 && (
+                          <div style={{ padding:"14px 16px 12px" }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
+                              <span style={{ fontSize:9, fontWeight:800, letterSpacing:".22em", color:"#475569", fontFamily:"'Azeret Mono',monospace" }}>
+                                BEST BETS
+                              </span>
+                              {locks.length > 0 && (
+                                <span style={{ fontSize:9, fontWeight:700, color:"#a855f7", fontFamily:"'Azeret Mono',monospace" }}>
+                                  ● {locks.length} LOCK
+                                </span>
+                              )}
+                              {acts.length > 0 && (
+                                <span style={{ fontSize:9, fontWeight:700, color:"#3b82f6", fontFamily:"'Azeret Mono',monospace" }}>
+                                  ● {acts.length} ACTIONABLE
+                                </span>
+                              )}
                             </div>
-                          );
-                        })}
+                            <div className="bet-cards-grid">
+                              {best.map((r, i) => (
+                                <BetCard key={i} r={r} propLabels={PROP_LABELS}
+                                  onOpen={() => { selGame(gid); setPname(fmt(r.name)); setPkey(r.name); setShowBulk(false); }} />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* ── WATCH — compact rows ── */}
+                        {watch.length > 0 && (
+                          <div style={{ padding:"4px 16px 10px", borderTop:"1px solid rgba(245,158,11,.08)" }}>
+                            <div style={{ padding:"8px 0 5px", fontSize:9, fontWeight:800, letterSpacing:".18em",
+                              color:"#f59e0b", fontFamily:"'Azeret Mono',monospace" }}>
+                              WATCH — {watch.length}
+                            </div>
+                            {watch.map((r, i) => {
+                              const isOver = r.lean === "OVER";
+                              const ac = isOver ? "#10b981" : "#ef4444";
+                              return (
+                                <div key={i} className="bet-watch-row"
+                                  onClick={() => { selGame(gid); setPname(fmt(r.name)); setPkey(r.name); setShowBulk(false); }}>
+                                  <span style={{ color:"#94a3b8", fontWeight:600, flex:"0 0 128px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{fmt(r.name)}</span>
+                                  <span style={{ color:"#334155", fontSize:9, flex:"0 0 28px" }}>{r.team}</span>
+                                  <span style={{ background:"rgba(245,158,11,.08)", color:"#f59e0b",
+                                    border:"1px solid rgba(245,158,11,.2)", borderRadius:3,
+                                    padding:"0 5px", fontSize:8, flex:"0 0 32px", textAlign:"center" }}>
+                                    {PROP_LABELS[r.propId]}
+                                  </span>
+                                  <span style={{ color:"#334155", fontSize:11, marginLeft:10, flex:"0 0 28px" }}>{r.line}</span>
+                                  <span style={{ color:ac, fontSize:11, fontWeight:600, flex:"0 0 40px", marginLeft:4 }}>
+                                    → {r.proj.toFixed(1)}
+                                  </span>
+                                  <span style={{ color:ac, fontSize:9, flex:"0 0 42px" }}>
+                                    {isOver ? "OVER" : "UNDER"}
+                                  </span>
+                                  <span style={{ color:"#f59e0b", fontSize:10, fontWeight:700 }}>
+                                    EV {r.ev >= 0 ? "+" : ""}{r.ev}%
+                                  </span>
+                                  {r.band?.trust_score != null && (
+                                    <span style={{ color: r.band.trust_score >= 70 ? "#10b981" : "#f59e0b", fontSize:9, marginLeft:10 }}>
+                                      T{r.band.trust_score}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* ── SKIP — just a count ── */}
+                        {skip.length > 0 && (
+                          <div style={{ padding:"8px 16px", fontSize:9, color:"#1e293b",
+                            fontFamily:"'Azeret Mono',monospace", borderTop:"1px solid rgba(255,255,255,.03)" }}>
+                            {skip.length} SKIP prop{skip.length !== 1 ? "s" : ""} hidden
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
