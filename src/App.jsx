@@ -1998,16 +1998,10 @@ export default function NBAPropsModel() {
                     );
                   })()}
 
-                  {/* ── Two-axis spotlight ── */}
-                  {(() => {
-                    const highFloor = bulkProjResults.filter(r => {
-                      const ts = r.band?.trust_score ?? null;
-                      const mcP = r.mcSideProb ?? null;
-                      return (r.cv != null && r.cv < 0.35 || ts != null && ts >= 75) && (mcP == null || mcP >= 0.55);
-                    });
-                    const highAlpha = bulkProjResults.filter(r =>
-                      Math.abs(r.ev) > 10 && r.modelLift != null && r.modelLift > 0.15
-                    );
+                  {/* ── Two-axis spotlight — removed; LOCK/ACT card board replaces this ── */}
+                  {false && (() => {
+                    const highFloor = [];
+                    const highAlpha = [];
                     if (!highFloor.length && !highAlpha.length) return null;
                     const Row = ({ r, accent }) => (
                       <div style={{ padding:"7px 16px", borderBottom:"1px solid rgba(255,255,255,.03)", display:"flex", gap:10, alignItems:"center", flexWrap:"wrap", fontFamily:"'Azeret Mono',monospace", fontSize:11 }}>
