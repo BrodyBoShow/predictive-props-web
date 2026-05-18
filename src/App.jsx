@@ -289,47 +289,43 @@ const GRADE_PALETTE = {
 };
 
 const WinningPropCard = ({ r, propLabels, onOpen }) => {
-  const isOver   = r.lean === "OVER";
-  const accent   = isOver ? "#10b981" : "#ef4444";
-  const pal      = GRADE_PALETTE[r.grade] || GRADE_PALETTE.SKIP;
+  const isOver      = r.lean === "OVER";
+  const accent      = isOver ? "#10b981" : "#ef4444";
+  const gradeColor  = r.grade === "LOCK" ? "#a855f7" : "#3b82f6";
   const displayName = r.name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   const cb = r.band;
 
   return (
-    <div style={{ background:"rgba(255,255,255,.025)", border:`1px solid ${pal.border}`,
-      borderRadius:12, padding:"14px 16px", display:"flex", flexDirection:"column", gap:10,
-      position:"relative", overflow:"hidden", fontFamily:"'Azeret Mono',monospace" }}>
+    <div className="prop-card" style={{ border:`1px solid ${gradeColor}40` }}>
+      {/* Accent top stripe */}
+      <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:gradeColor }} />
 
-      {/* Grade ribbon */}
-      <div style={{ position:"absolute", top:0, right:0, background:pal.bg,
-        borderBottomLeftRadius:8, padding:"3px 10px", fontSize:9, fontWeight:800,
-        letterSpacing:".1em", color:pal.text }}>
-        {r.grade === "ACTIONABLE" ? "ACT" : r.grade}
-      </div>
-
-      {/* Player + prop */}
-      <div>
-        <div style={{ color:"#e8f0ff", fontWeight:700, fontSize:14, paddingRight:48 }}>{displayName}</div>
-        <div style={{ color:"#64748b", fontSize:10, marginTop:2 }}>
-          {r.team} · {propLabels[r.propId]}
-          {r.sharedConflict && <span style={{ color:"#f59e0b", marginLeft:5 }} title="Shared-resource conflict — teammate also projected high">⚡⚠</span>}
-          {r.driftDown      && <span style={{ color:"#f59e0b", marginLeft:5 }} title="Model has over-projected recently">↘</span>}
+      <div className="prop-card-header">
+        <div style={{ minWidth:0 }}>
+          <div className="prop-card-name" title={displayName}>{displayName}</div>
+          <div className="prop-card-meta">
+            {r.team} · {propLabels[r.propId]}
+            {r.sharedConflict && <span style={{ color:"#f59e0b", marginLeft:5 }} title="Teammate also projected high — shared resource">⚡⚠</span>}
+            {r.driftDown      && <span style={{ color:"#f59e0b", marginLeft:5 }} title="Model over-projected recently">↘</span>}
+          </div>
+        </div>
+        <div style={{ background:`${gradeColor}15`, color:gradeColor, padding:"4px 8px",
+          borderRadius:6, fontSize:10, fontWeight:800, letterSpacing:".05em", flexShrink:0 }}>
+          {r.grade === "ACTIONABLE" ? "ACT" : r.grade}
         </div>
       </div>
 
-      {/* Line / lean / proj */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
-        background:"rgba(0,0,0,.18)", borderRadius:8, padding:"10px 14px" }}>
-        <div style={{ textAlign:"center" }}>
-          <div style={{ color:"#475569", fontSize:9, marginBottom:3 }}>LINE</div>
-          <div style={{ color:"#c8d4e8", fontSize:18, fontWeight:600 }}>{r.line}</div>
+      <div className="prop-card-body">
+        <div className="prop-card-stat">
+          <div className="prop-card-stat-label">LINE</div>
+          <div className="prop-card-stat-val">{r.line}</div>
         </div>
-        <div style={{ color:accent, fontSize:18, fontWeight:900, letterSpacing:".04em" }}>
+        <div style={{ color:accent, fontSize:16, fontWeight:800, letterSpacing:".05em" }}>
           {isOver ? "OVER ↗" : "UNDER ↘"}
         </div>
-        <div style={{ textAlign:"center" }}>
-          <div style={{ color:"#475569", fontSize:9, marginBottom:3 }}>PROJ</div>
-          <div style={{ color:accent, fontSize:18, fontWeight:800 }}>{r.proj.toFixed(1)}</div>
+        <div className="prop-card-stat">
+          <div className="prop-card-stat-label">PROJ</div>
+          <div className="prop-card-stat-val" style={{ color:accent }}>{r.proj.toFixed(1)}</div>
         </div>
       </div>
 
@@ -338,7 +334,7 @@ const WinningPropCard = ({ r, propLabels, onOpen }) => {
         const bMin = Math.max(0, cb.floor-1), bMax = cb.ceiling+1, span = bMax-bMin||1;
         const pct = v => `${Math.min(100,Math.max(0,((v-bMin)/span)*100)).toFixed(1)}%`;
         return (
-          <div style={{ position:"relative", height:6, background:"rgba(99,102,241,.08)", borderRadius:3, border:"1px solid rgba(99,102,241,.15)" }}>
+          <div style={{ position:"relative", height:6, background:"rgba(99,102,241,.08)", borderRadius:3, border:"1px solid rgba(99,102,241,.15)", margin:"0 2px" }}>
             <div style={{ position:"absolute", left:pct(cb.floor), right:`${(100-parseFloat(pct(cb.ceiling))).toFixed(1)}%`, top:0, bottom:0, background:"rgba(99,102,241,.22)", borderRadius:2 }} />
             <div style={{ position:"absolute", left:pct(r.proj), top:-3, width:12, height:12, borderRadius:"50%", background:accent, transform:"translateX(-50%)", border:"2px solid #0d1627" }} />
             {r.line > 0 && <div style={{ position:"absolute", left:pct(r.line), top:-4, width:2, height:14, background:"#f59e0b", borderRadius:1 }} />}
@@ -346,14 +342,12 @@ const WinningPropCard = ({ r, propLabels, onOpen }) => {
         );
       })()}
 
-      {/* EV + Kelly + open */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontSize:11 }}>
+      <div className="prop-card-footer">
         <span style={{ color:accent, fontWeight:700 }}>EV {r.ev >= 0 ? "+" : ""}{r.ev}%</span>
-        {r.qKelly > 0 && <span style={{ color:"#818cf8" }}>¼K {r.qKelly}%</span>}
+        {r.qKelly > 0 && <span style={{ color:"#818cf8", fontWeight:600 }}>¼K {r.qKelly}%</span>}
         {onOpen && (
-          <button onClick={onOpen}
-            style={{ padding:"2px 9px", background:"rgba(99,102,241,.1)", border:"1px solid rgba(99,102,241,.25)",
-              borderRadius:4, color:"#818cf8", cursor:"pointer", fontSize:8 }}>
+          <button onClick={onOpen} style={{ padding:"2px 9px", background:"rgba(99,102,241,.1)",
+            border:"1px solid rgba(99,102,241,.25)", borderRadius:4, color:"#818cf8", cursor:"pointer", fontSize:8 }}>
             OPEN →
           </button>
         )}
@@ -364,40 +358,47 @@ const WinningPropCard = ({ r, propLabels, onOpen }) => {
 
 // ── ConfidenceMeter — single-player projection band ───────────────────────────
 const ConfidenceMeter = ({ proj, line, floor, ceiling, trustScore, source, std, n }) => {
-  const bMin  = Math.max(0, floor - 1);
-  const bMax  = ceiling + 1;
-  const span  = bMax - bMin || 1;
-  const pct   = v => `${Math.min(100, Math.max(0, ((v - bMin) / span) * 100)).toFixed(1)}%`;
-  const straddles = line > 0 && floor <= line && ceiling >= line;
+  if (floor == null || ceiling == null) return null;
+  const span     = Math.max(ceiling - floor, 1);
+  const projPct  = Math.max(0, Math.min(100, ((proj  - floor) / span) * 100));
+  const linePct  = line != null ? Math.max(0, Math.min(100, ((line  - floor) / span) * 100)) : null;
   const trustColor = trustScore >= 70 ? "#10b981" : trustScore >= 40 ? "#f59e0b" : "#ef4444";
 
   return (
-    <div style={{ background:"rgba(99,102,241,.07)", border:"1px solid rgba(99,102,241,.22)", borderRadius:12, padding:"14px 16px", fontFamily:"'Azeret Mono',monospace" }}>
+    <div style={{ background:"rgba(99,102,241,.07)", border:"1px solid rgba(99,102,241,.22)",
+      borderRadius:12, padding:"16px", fontFamily:"'Azeret Mono',monospace" }}>
       {/* Header */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, flexWrap:"wrap", gap:6 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12, flexWrap:"wrap", gap:6 }}>
         <span style={{ fontSize:10, letterSpacing:".18em", color:"#6366f1" }}>
           ⚡ {source === "xgb_quantile" ? "XGB QUANTILE BAND" : `CONFIDENCE BAND · σ${std} · n${n}`}
         </span>
-        {trustScore != null && (
-          <span style={{ fontSize:10, fontWeight:700, color:trustColor }}>TRUST {trustScore}</span>
+        {trustScore != null && <span style={{ fontSize:10, fontWeight:700, color:trustColor }}>TRUST {trustScore}</span>}
+      </div>
+
+      {/* Floor / Ceiling labels */}
+      <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"#94a3b8", marginBottom:8 }}>
+        <span>Floor: {floor}</span>
+        <span>Ceil: {ceiling}</span>
+      </div>
+
+      {/* Track — margin so markers don't clip edges */}
+      <div style={{ position:"relative", height:8, background:"rgba(255,255,255,.05)", borderRadius:4, margin:"0 8px" }}>
+        <div style={{ position:"absolute", inset:0, background:"rgba(99,102,241,.2)", borderRadius:4 }} />
+        {/* Proj marker */}
+        <div style={{ position:"absolute", left:`${projPct}%`, top:-4, width:16, height:16,
+          borderRadius:"50%", background:"#6366f1", transform:"translateX(-50%)",
+          border:"2px solid #0f172a", zIndex:2, boxShadow:"0 0 8px rgba(99,102,241,.7)" }} />
+        {/* Line marker */}
+        {linePct != null && (
+          <div style={{ position:"absolute", left:`${linePct}%`, top:-6, width:4, height:20,
+            background:"#f59e0b", borderRadius:2, transform:"translateX(-50%)", zIndex:1 }} />
         )}
       </div>
 
-      {/* Track */}
-      <div style={{ position:"relative", height:10, background:"rgba(99,102,241,.08)", borderRadius:5, border:"1px solid rgba(99,102,241,.18)", marginBottom:10 }}>
-        <div style={{ position:"absolute", left:pct(floor), right:`${(100-parseFloat(pct(ceiling))).toFixed(1)}%`, top:0, bottom:0, background:"rgba(99,102,241,.28)", borderRadius:4 }} />
-        <div style={{ position:"absolute", left:pct(proj), top:-4, width:18, height:18, borderRadius:"50%", background:"#6366f1", transform:"translateX(-50%)", border:"2px solid #060b18", boxShadow:"0 0 10px rgba(99,102,241,.75)" }} />
-        {line > 0 && <div style={{ position:"absolute", left:pct(line), top:-5, width:2, height:20, background:straddles?"#f59e0b":"#ef4444", borderRadius:1, boxShadow:`0 0 8px ${straddles?"#f59e0b":"#ef4444"}` }} />}
-      </div>
-
-      {/* Labels */}
-      <div style={{ display:"flex", justifyContent:"space-between", fontSize:11 }}>
-        <span style={{ color:"#6366f1" }}>{floor} floor</span>
-        <span style={{ color:"#c8d4e8", fontWeight:600 }}>
-          {proj?.toFixed?.(1) ?? "?"} proj
-          {line > 0 && <span style={{ color:straddles?"#f59e0b":"#ef4444", marginLeft:8 }}>│ {line} line{straddles?" ⚠":""}</span>}
-        </span>
-        <span style={{ color:"#6366f1" }}>{ceiling} ceil</span>
+      {/* Bottom labels */}
+      <div style={{ display:"flex", justifyContent:"center", gap:16, marginTop:16, fontSize:11 }}>
+        <span style={{ color:"#6366f1", fontWeight:700 }}>Proj: {proj?.toFixed?.(1) ?? "?"}</span>
+        {line != null && <span style={{ color:"#f59e0b", fontWeight:700 }}>Line: {line}</span>}
       </div>
     </div>
   );
@@ -2074,7 +2075,7 @@ export default function NBAPropsModel() {
                                 color:"#475569", marginBottom:12 }}>
                                 🔥 TOP PLAYS — {topPlays.filter(r=>r.grade==="LOCK").length} LOCK · {topPlays.filter(r=>r.grade==="ACTIONABLE").length} ACTIONABLE
                               </div>
-                              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))", gap:12 }}>
+                              <div className="prop-cards-grid" style={{ marginTop:0 }}>
                                 {topPlays
                                   .sort((a,b) => (GRADE_ORDER[a.grade]-GRADE_ORDER[b.grade]) || (Math.abs(b.ev)-Math.abs(a.ev)))
                                   .map((r, i) => (
