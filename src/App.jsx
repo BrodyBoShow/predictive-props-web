@@ -2171,11 +2171,39 @@ export default function NBAPropsModel() {
                           </div>
                         )}
 
-                        {/* ── SKIP — just a count ── */}
+                        {/* ── SKIP — compact rows ── */}
                         {skip.length > 0 && (
-                          <div style={{ padding:"8px 16px", fontSize:9, color:"#1e293b",
-                            fontFamily:"'Azeret Mono',monospace", borderTop:"1px solid rgba(255,255,255,.03)" }}>
-                            {skip.length} SKIP prop{skip.length !== 1 ? "s" : ""} hidden
+                          <div style={{ padding:"4px 16px 8px", borderTop:"1px solid rgba(71,85,105,.1)" }}>
+                            <div style={{ padding:"8px 0 5px", fontSize:9, fontWeight:800, letterSpacing:".18em",
+                              color:"#475569", fontFamily:"'Azeret Mono',monospace" }}>
+                              SKIP — {skip.length}
+                            </div>
+                            {skip.map((r, i) => {
+                              const isOver = r.lean === "OVER";
+                              const ac = isOver ? "#334155" : "#334155";
+                              return (
+                                <div key={i} className="bet-watch-row" style={{ opacity:0.55 }}
+                                  onClick={() => { selGame(gid); setPname(fmt(r.name)); setPkey(r.name); setShowBulk(false); }}>
+                                  <span style={{ color:"#64748b", fontWeight:500, flex:"0 0 128px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{fmt(r.name)}</span>
+                                  <span style={{ color:"#334155", fontSize:9, flex:"0 0 28px" }}>{r.team}</span>
+                                  <span style={{ background:"rgba(71,85,105,.08)", color:"#475569",
+                                    border:"1px solid rgba(71,85,105,.2)", borderRadius:3,
+                                    padding:"0 5px", fontSize:8, flex:"0 0 32px", textAlign:"center" }}>
+                                    {PROP_LABELS[r.propId]}
+                                  </span>
+                                  <span style={{ color:"#334155", fontSize:11, marginLeft:10, flex:"0 0 28px" }}>{r.line}</span>
+                                  <span style={{ color:"#475569", fontSize:11, fontWeight:500, flex:"0 0 40px", marginLeft:4 }}>
+                                    → {r.proj.toFixed(1)}
+                                  </span>
+                                  <span style={{ color:"#475569", fontSize:9, flex:"0 0 42px" }}>
+                                    {isOver ? "OVER" : "UNDER"}
+                                  </span>
+                                  <span style={{ color:"#334155", fontSize:10 }}>
+                                    EV {r.ev >= 0 ? "+" : ""}{r.ev}%
+                                  </span>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
