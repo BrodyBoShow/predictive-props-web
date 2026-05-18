@@ -962,6 +962,36 @@ export default function NBAPropsModel() {
       if (flagWarn) rows.forEach(r => { r.teamOverWarn = true; });
     });
 
+    // ── Shared-resource conflict check (REB, AST) ──────────────────────────────
+    // If 2+ teammates are both LOCK on the same shared-resource prop, they compete
+    // for the same pool. Keep the player with the highest EV as LOCK; downgrade
+    // the rest to ACTIONABLE and flag them so the UI can show a conflict warning.
+    const SHARED_PROPS = new Set(["rebounds", "assists"]);
+    const sharedGroups = {};
+    results.forEach(r => {
+      if (r.grade === "LOCK" && SHARED_PROPS.has(r.propId)) {
+        const key = `${r.team}__${r.propId}`;
+        if (!sharedGroups[key]) sharedGroups[key] = [];
+        sharedGroups[key].push(r);
+      }
+    });
+    Object.values(sharedGroups).forEach(group => {
+      if (group.length < 2) return;
+      // Sort by EV descending — keep top player as LOCK, downgrade others
+      group.sort((a, b) => Math.abs(b.ev) - Math.abs(a.ev));
+      group.slice(1).forEach(r => {
+        r.grade = "ACTIONABLE";
+        r.sharedConflict = true;
+        // Re-compute Kelly with updated grade
+        if (r.ev && r.line) {
+          const p_win = Math.min(0.85, Math.max(0.15, (Math.abs(r.ev) / 100 + 1) / 2));
+          const b = Math.abs(r.ev) / 100;
+          const k = b > 0 ? Math.max(0, (b * p_win - (1 - p_win)) / b) : 0;
+          r.qKelly = +(k * 0.25 * 100).toFixed(1);
+        }
+      });
+    });
+
     const gradeOrder = { LOCK: 0, ACTIONABLE: 1, WATCH: 2, SKIP: 3 };
     results.sort((a, b) => (gradeOrder[a.grade] - gradeOrder[b.grade]) || (Math.abs(b.ev) - Math.abs(a.ev)));
     setBulkProjResults(results);
@@ -1973,6 +2003,7 @@ export default function NBAPropsModel() {
                                         </span>
                                         <span style={{ color: gc, fontSize:9 }}>{r.ev >= 0 ? "+" : ""}{r.ev}%</span>
                                         {r.driftDown && <span style={{ color:"#f59e0b", fontSize:7 }} title="Consistent over-projection in recent games">↘</span>}
+                                        {r.sharedConflict && <span style={{ color:"#f59e0b", fontSize:7 }} title="Teammate also projected high on same stat — shared resource, downgraded from LOCK">⚡⚠</span>}
                                         {r.teamOverWarn && <span style={{ color:"#f59e0b", fontSize:7 }} title="High team OVER rate">⚠</span>}
                                         {cb && (() => {
                                           const bMin = Math.max(0, cb.floor-1), bMax = cb.ceiling+1, span = bMax-bMin||1;
