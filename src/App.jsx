@@ -280,6 +280,129 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
 }
 
 
+// ── WinningPropCard — bulk LOCK/ACTIONABLE card ───────────────────────────────
+const GRADE_PALETTE = {
+  LOCK:       { bg:"rgba(168,85,247,.12)", border:"rgba(168,85,247,.35)", text:"#a855f7" },
+  ACTIONABLE: { bg:"rgba(59,130,246,.12)",  border:"rgba(59,130,246,.35)",  text:"#3b82f6" },
+  WATCH:      { bg:"rgba(245,158,11,.10)",  border:"rgba(245,158,11,.3)",   text:"#f59e0b" },
+  SKIP:       { bg:"rgba(71,85,105,.10)",   border:"rgba(71,85,105,.3)",    text:"#475569" },
+};
+
+const WinningPropCard = ({ r, propLabels, onOpen }) => {
+  const isOver   = r.lean === "OVER";
+  const accent   = isOver ? "#10b981" : "#ef4444";
+  const pal      = GRADE_PALETTE[r.grade] || GRADE_PALETTE.SKIP;
+  const displayName = r.name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  const cb = r.band;
+
+  return (
+    <div style={{ background:"rgba(255,255,255,.025)", border:`1px solid ${pal.border}`,
+      borderRadius:12, padding:"14px 16px", display:"flex", flexDirection:"column", gap:10,
+      position:"relative", overflow:"hidden", fontFamily:"'Azeret Mono',monospace" }}>
+
+      {/* Grade ribbon */}
+      <div style={{ position:"absolute", top:0, right:0, background:pal.bg,
+        borderBottomLeftRadius:8, padding:"3px 10px", fontSize:9, fontWeight:800,
+        letterSpacing:".1em", color:pal.text }}>
+        {r.grade === "ACTIONABLE" ? "ACT" : r.grade}
+      </div>
+
+      {/* Player + prop */}
+      <div>
+        <div style={{ color:"#e8f0ff", fontWeight:700, fontSize:14, paddingRight:48 }}>{displayName}</div>
+        <div style={{ color:"#64748b", fontSize:10, marginTop:2 }}>
+          {r.team} · {propLabels[r.propId]}
+          {r.sharedConflict && <span style={{ color:"#f59e0b", marginLeft:5 }} title="Shared-resource conflict — teammate also projected high">⚡⚠</span>}
+          {r.driftDown      && <span style={{ color:"#f59e0b", marginLeft:5 }} title="Model has over-projected recently">↘</span>}
+        </div>
+      </div>
+
+      {/* Line / lean / proj */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
+        background:"rgba(0,0,0,.18)", borderRadius:8, padding:"10px 14px" }}>
+        <div style={{ textAlign:"center" }}>
+          <div style={{ color:"#475569", fontSize:9, marginBottom:3 }}>LINE</div>
+          <div style={{ color:"#c8d4e8", fontSize:18, fontWeight:600 }}>{r.line}</div>
+        </div>
+        <div style={{ color:accent, fontSize:18, fontWeight:900, letterSpacing:".04em" }}>
+          {isOver ? "OVER ↗" : "UNDER ↘"}
+        </div>
+        <div style={{ textAlign:"center" }}>
+          <div style={{ color:"#475569", fontSize:9, marginBottom:3 }}>PROJ</div>
+          <div style={{ color:accent, fontSize:18, fontWeight:800 }}>{r.proj.toFixed(1)}</div>
+        </div>
+      </div>
+
+      {/* Mini confidence bar */}
+      {cb && (() => {
+        const bMin = Math.max(0, cb.floor-1), bMax = cb.ceiling+1, span = bMax-bMin||1;
+        const pct = v => `${Math.min(100,Math.max(0,((v-bMin)/span)*100)).toFixed(1)}%`;
+        return (
+          <div style={{ position:"relative", height:6, background:"rgba(99,102,241,.08)", borderRadius:3, border:"1px solid rgba(99,102,241,.15)" }}>
+            <div style={{ position:"absolute", left:pct(cb.floor), right:`${(100-parseFloat(pct(cb.ceiling))).toFixed(1)}%`, top:0, bottom:0, background:"rgba(99,102,241,.22)", borderRadius:2 }} />
+            <div style={{ position:"absolute", left:pct(r.proj), top:-3, width:12, height:12, borderRadius:"50%", background:accent, transform:"translateX(-50%)", border:"2px solid #0d1627" }} />
+            {r.line > 0 && <div style={{ position:"absolute", left:pct(r.line), top:-4, width:2, height:14, background:"#f59e0b", borderRadius:1 }} />}
+          </div>
+        );
+      })()}
+
+      {/* EV + Kelly + open */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontSize:11 }}>
+        <span style={{ color:accent, fontWeight:700 }}>EV {r.ev >= 0 ? "+" : ""}{r.ev}%</span>
+        {r.qKelly > 0 && <span style={{ color:"#818cf8" }}>¼K {r.qKelly}%</span>}
+        {onOpen && (
+          <button onClick={onOpen}
+            style={{ padding:"2px 9px", background:"rgba(99,102,241,.1)", border:"1px solid rgba(99,102,241,.25)",
+              borderRadius:4, color:"#818cf8", cursor:"pointer", fontSize:8 }}>
+            OPEN →
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ── ConfidenceMeter — single-player projection band ───────────────────────────
+const ConfidenceMeter = ({ proj, line, floor, ceiling, trustScore, source, std, n }) => {
+  const bMin  = Math.max(0, floor - 1);
+  const bMax  = ceiling + 1;
+  const span  = bMax - bMin || 1;
+  const pct   = v => `${Math.min(100, Math.max(0, ((v - bMin) / span) * 100)).toFixed(1)}%`;
+  const straddles = line > 0 && floor <= line && ceiling >= line;
+  const trustColor = trustScore >= 70 ? "#10b981" : trustScore >= 40 ? "#f59e0b" : "#ef4444";
+
+  return (
+    <div style={{ background:"rgba(99,102,241,.07)", border:"1px solid rgba(99,102,241,.22)", borderRadius:12, padding:"14px 16px", fontFamily:"'Azeret Mono',monospace" }}>
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, flexWrap:"wrap", gap:6 }}>
+        <span style={{ fontSize:10, letterSpacing:".18em", color:"#6366f1" }}>
+          ⚡ {source === "xgb_quantile" ? "XGB QUANTILE BAND" : `CONFIDENCE BAND · σ${std} · n${n}`}
+        </span>
+        {trustScore != null && (
+          <span style={{ fontSize:10, fontWeight:700, color:trustColor }}>TRUST {trustScore}</span>
+        )}
+      </div>
+
+      {/* Track */}
+      <div style={{ position:"relative", height:10, background:"rgba(99,102,241,.08)", borderRadius:5, border:"1px solid rgba(99,102,241,.18)", marginBottom:10 }}>
+        <div style={{ position:"absolute", left:pct(floor), right:`${(100-parseFloat(pct(ceiling))).toFixed(1)}%`, top:0, bottom:0, background:"rgba(99,102,241,.28)", borderRadius:4 }} />
+        <div style={{ position:"absolute", left:pct(proj), top:-4, width:18, height:18, borderRadius:"50%", background:"#6366f1", transform:"translateX(-50%)", border:"2px solid #060b18", boxShadow:"0 0 10px rgba(99,102,241,.75)" }} />
+        {line > 0 && <div style={{ position:"absolute", left:pct(line), top:-5, width:2, height:20, background:straddles?"#f59e0b":"#ef4444", borderRadius:1, boxShadow:`0 0 8px ${straddles?"#f59e0b":"#ef4444"}` }} />}
+      </div>
+
+      {/* Labels */}
+      <div style={{ display:"flex", justifyContent:"space-between", fontSize:11 }}>
+        <span style={{ color:"#6366f1" }}>{floor} floor</span>
+        <span style={{ color:"#c8d4e8", fontWeight:600 }}>
+          {proj?.toFixed?.(1) ?? "?"} proj
+          {line > 0 && <span style={{ color:straddles?"#f59e0b":"#ef4444", marginLeft:8 }}>│ {line} line{straddles?" ⚠":""}</span>}
+        </span>
+        <span style={{ color:"#6366f1" }}>{ceiling} ceil</span>
+      </div>
+    </div>
+  );
+};
+
 export default function NBAPropsModel() {
   const [gid, setGid] = useState(null);
   const [liveSched, setLiveSched] = useState(null); // null = loading, false = failed, object = loaded
@@ -1936,101 +2059,66 @@ export default function NBAPropsModel() {
                     );
                   })()}
 
-                  {/* ── Results — one row per player, prop chips inline ── */}
+                  {/* ── Results ── */}
                   <div style={{ borderTop:"1px solid rgba(255,255,255,.06)" }}>
                     {(() => {
+                      const topPlays = bulkProjResults.filter(r => r.grade === "LOCK" || r.grade === "ACTIONABLE");
+                      const lowerPlays = bulkProjResults.filter(r => r.grade === "WATCH" || r.grade === "SKIP");
                       const GRADE_ORDER = { LOCK:0, ACTIONABLE:1, WATCH:2, SKIP:3 };
-                      const playerMap = {};
-                      bulkProjResults.forEach(r => {
-                        if (!playerMap[r.name]) playerMap[r.name] = { name: r.name, team: r.team, props: [] };
-                        playerMap[r.name].props.push(r);
-                      });
-                      const players = Object.values(playerMap).sort((a, b) => {
-                        const aTop = Math.min(...a.props.map(p => GRADE_ORDER[p.grade]));
-                        const bTop = Math.min(...b.props.map(p => GRADE_ORDER[p.grade]));
-                        if (aTop !== bTop) return aTop - bTop;
-                        return Math.max(...b.props.map(p => Math.abs(p.ev))) - Math.max(...a.props.map(p => Math.abs(p.ev)));
-                      });
-                      let lastTier = null;
-                      return players.map((pl, idx) => {
-                        const topGrade = pl.props.reduce((best, p) =>
-                          GRADE_ORDER[p.grade] < GRADE_ORDER[best] ? p.grade : best, "SKIP");
-                        const topColor = GRADE_COLOR[topGrade];
-                        const showHeader = topGrade !== lastTier;
-                        if (showHeader) lastTier = topGrade;
-                        const tierCount = players.filter(p =>
-                          p.props.reduce((b, r) => GRADE_ORDER[r.grade] < GRADE_ORDER[b] ? r.grade : b, "SKIP") === topGrade
-                        ).length;
-                        return (
-                          <React.Fragment key={pl.name}>
-                            {showHeader && (
-                              <div style={{ padding:"7px 16px", background:`${topColor}0d`,
-                                borderTop: idx > 0 ? "1px solid rgba(255,255,255,.06)" : "none",
-                                borderBottom:"1px solid rgba(255,255,255,.05)",
-                                fontFamily:"'Azeret Mono',monospace", fontSize:10, color: topColor,
-                                letterSpacing:".14em", fontWeight:700 }}>
-                                {topGrade} — {tierCount} player{tierCount !== 1 ? "s" : ""}
+                      return (
+                        <>
+                          {/* ── LOCK & ACTIONABLE — card grid ── */}
+                          {topPlays.length > 0 && (
+                            <div style={{ padding:"16px" }}>
+                              <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, letterSpacing:".18em",
+                                color:"#475569", marginBottom:12 }}>
+                                🔥 TOP PLAYS — {topPlays.filter(r=>r.grade==="LOCK").length} LOCK · {topPlays.filter(r=>r.grade==="ACTIONABLE").length} ACTIONABLE
                               </div>
-                            )}
-                            <div style={{ padding:"9px 16px", borderBottom:"1px solid rgba(255,255,255,.03)",
-                              display:"flex", gap:10, alignItems:"center", flexWrap:"wrap",
-                              fontFamily:"'Azeret Mono',monospace", transition:"background .12s" }}
-                              onMouseEnter={e => e.currentTarget.style.background = `${topColor}07`}
-                              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                              <span style={{ color:"#e8f0ff", minWidth:148, fontWeight:600, fontSize:12 }}>
-                                {pl.name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}
-                              </span>
-                              <span style={{ color:"#475569", fontSize:9, minWidth:30 }}>{pl.team}</span>
-                              <div style={{ display:"flex", gap:6, flexWrap:"wrap", flex:1 }}>
-                                {pl.props
-                                  .sort((a, b) => GRADE_ORDER[a.grade] - GRADE_ORDER[b.grade])
-                                  .map((r, ri) => {
-                                    const gc = GRADE_COLOR[r.grade];
-                                    const ageMin = r.pulledAt ? Math.floor((Date.now() - r.pulledAt) / 60000) : null;
-                                    const cb = r.band;
-                                    return (
-                                      <span key={ri} style={{ display:"inline-flex", alignItems:"center", gap:5,
-                                        padding:"4px 10px", borderRadius:6, background:`${gc}10`, border:`1px solid ${gc}2e`, fontSize:10 }}>
-                                        <span style={{ color:"#64748b", letterSpacing:".05em" }}>{PROP_LABELS[r.propId]}</span>
-                                        <span style={{ color: r.lean === "OVER" ? "#10b981" : "#ef4444", fontWeight:700 }}>
-                                          {r.lean === "OVER" ? "↑" : "↓"}{r.proj.toFixed(1)}
-                                        </span>
-                                        <span style={{ color:"#475569" }}>/{r.line}
-                                          {ageMin != null && <span style={{ fontSize:7, marginLeft:2, color: ageMin > 15 ? "#ef4444" : "#334155" }}>{ageMin}m</span>}
-                                        </span>
-                                        <span style={{ color: gc, fontWeight:700, fontSize:9, letterSpacing:".06em" }}>
-                                          {r.grade === "ACTIONABLE" ? "ACT" : r.grade}
-                                        </span>
-                                        <span style={{ color: gc, fontSize:9 }}>{r.ev >= 0 ? "+" : ""}{r.ev}%</span>
-                                        {r.driftDown && <span style={{ color:"#f59e0b", fontSize:7 }} title="Consistent over-projection in recent games">↘</span>}
-                                        {r.sharedConflict && <span style={{ color:"#f59e0b", fontSize:7 }} title="Teammate also projected high on same stat — shared resource, downgraded from LOCK">⚡⚠</span>}
-                                        {r.teamOverWarn && <span style={{ color:"#f59e0b", fontSize:7 }} title="High team OVER rate">⚠</span>}
-                                        {cb && (() => {
-                                          const bMin = Math.max(0, cb.floor-1), bMax = cb.ceiling+1, span = bMax-bMin||1;
-                                          const pct = v => `${Math.min(100,Math.max(0,((v-bMin)/span)*100)).toFixed(1)}%`;
-                                          return (
-                                            <span style={{ position:"relative", display:"inline-block", width:50, height:4,
-                                              background:"rgba(99,102,241,.1)", borderRadius:2, border:"1px solid rgba(99,102,241,.15)", flexShrink:0 }}>
-                                              <span style={{ position:"absolute", left:pct(cb.floor), right:`${(100-parseFloat(pct(cb.ceiling))).toFixed(1)}%`, top:0, bottom:0, background:"rgba(99,102,241,.2)", borderRadius:1 }} />
-                                              <span style={{ position:"absolute", left:pct(r.proj), top:-2, width:5, height:5, borderRadius:"50%", background:gc, transform:"translateX(-50%)", border:"1px solid #1e293b" }} />
-                                              {r.line > 0 && <span style={{ position:"absolute", left:pct(r.line), top:-2, width:1.5, height:8, background:"#ef4444", borderRadius:1 }} />}
-                                            </span>
-                                          );
-                                        })()}
-                                      </span>
-                                    );
-                                  })}
+                              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))", gap:12 }}>
+                                {topPlays
+                                  .sort((a,b) => (GRADE_ORDER[a.grade]-GRADE_ORDER[b.grade]) || (Math.abs(b.ev)-Math.abs(a.ev)))
+                                  .map((r, i) => (
+                                    <WinningPropCard key={`${r.name}-${r.propId}-${i}`}
+                                      r={r} propLabels={PROP_LABELS}
+                                      onOpen={() => { selGame(gid); setPname(r.name.split(" ").map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(" ")); setPkey(r.name); setShowBulk(false); }}
+                                    />
+                                  ))
+                                }
                               </div>
-                              <button
-                                onClick={() => { selGame(gid); setPname(pl.name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")); setPkey(pl.name); setShowBulk(false); }}
-                                style={{ padding:"3px 10px", background:"rgba(99,102,241,.1)", border:"1px solid rgba(99,102,241,.25)",
-                                  borderRadius:4, color:"#818cf8", cursor:"pointer", fontSize:8, fontFamily:"'Azeret Mono',monospace" }}>
-                                OPEN →
-                              </button>
                             </div>
-                          </React.Fragment>
-                        );
-                      });
+                          )}
+
+                          {/* ── WATCH & SKIP — compact rows ── */}
+                          {lowerPlays.length > 0 && (
+                            <div style={{ borderTop:"1px solid rgba(255,255,255,.06)" }}>
+                              <div style={{ padding:"8px 16px", fontFamily:"'Azeret Mono',monospace", fontSize:9,
+                                letterSpacing:".14em", color:"#334155" }}>
+                                WATCH / SKIP ({lowerPlays.length})
+                              </div>
+                              {lowerPlays.map((r, i) => {
+                                const gc = GRADE_COLOR[r.grade];
+                                const dn = r.name.split(" ").map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(" ");
+                                return (
+                                  <div key={i} style={{ padding:"7px 16px", borderTop:"1px solid rgba(255,255,255,.03)",
+                                    display:"flex", gap:10, alignItems:"center", flexWrap:"wrap",
+                                    fontFamily:"'Azeret Mono',monospace", fontSize:11, color:"#475569" }}>
+                                    <span style={{ minWidth:148, color:"#64748b" }}>{dn}</span>
+                                    <span style={{ fontSize:9, minWidth:28 }}>{r.team}</span>
+                                    <span style={{ fontSize:9 }}>{PROP_LABELS[r.propId]}</span>
+                                    <span style={{ color: r.lean==="OVER"?"#10b981":"#ef4444" }}>{r.lean==="OVER"?"↑":"↓"}{r.proj.toFixed(1)} /{r.line}</span>
+                                    <span style={{ color:gc, fontSize:9, fontWeight:700 }}>{r.grade}</span>
+                                    <span style={{ color:gc, fontSize:9 }}>{r.ev>=0?"+":""}{r.ev}%</span>
+                                    <button onClick={() => { selGame(gid); setPname(dn); setPkey(r.name); setShowBulk(false); }}
+                                      style={{ marginLeft:"auto", padding:"2px 8px", background:"rgba(99,102,241,.08)",
+                                        border:"1px solid rgba(99,102,241,.2)", borderRadius:4, color:"#818cf8",
+                                        cursor:"pointer", fontSize:8 }}>OPEN →</button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </>
+                      );
                     })()}
                   </div>
                   </div>
@@ -2243,31 +2331,17 @@ export default function NBAPropsModel() {
                 {/* Confidence band visual */}
                 {serverCorr?.confidenceBand && (() => {
                   const cb = serverCorr.confidenceBand;
-                  const barMin = Math.max(0, cb.floor - 1);
-                  const barMax = cb.ceiling + 1;
-                  const barSpan = barMax - barMin || 1;
-                  const pctOf = v => `${Math.min(100,Math.max(0,((v-barMin)/barSpan)*100)).toFixed(1)}%`;
-                  const straddles = l > 0 && cb.floor <= l && cb.ceiling >= l;
                   return (
-                    <div style={{ background:"rgba(99,102,241,.07)", border:"1px solid rgba(99,102,241,.22)", borderRadius:12, padding:"12px 16px" }}>
-                      <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:10, letterSpacing:".18em", color:"#6366f1", marginBottom:10, display:"flex", gap:10, flexWrap:"wrap" }}>
-                        <span>⚡ {cb.source === "xgb_quantile" ? "XGB QUANTILE BAND" : `BAND · σ${cb.std} · n${cb.n}`}</span>
-                        {cb.trust_score != null && <span style={{ color: cb.trust_score >= 70 ? "#10b981" : cb.trust_score >= 40 ? "#f59e0b" : "#ef4444", fontWeight:700 }}>TRUST {cb.trust_score}</span>}
-                      </div>
-                      <div style={{ position:"relative", height:10, background:"rgba(99,102,241,.08)", borderRadius:5, border:"1px solid rgba(99,102,241,.18)", marginBottom:10 }}>
-                        <div style={{ position:"absolute", left:pctOf(cb.floor), right:`${(100-parseFloat(pctOf(cb.ceiling))).toFixed(1)}%`, top:0, bottom:0, background:"rgba(99,102,241,.28)", borderRadius:4 }} />
-                        <div style={{ position:"absolute", left:pctOf(finalProj ?? cb.floor), top:-4, width:18, height:18, borderRadius:"50%", background:"#6366f1", transform:"translateX(-50%)", border:"2px solid #060b18", boxShadow:"0 0 10px rgba(99,102,241,.75)" }} />
-                        {l > 0 && <div style={{ position:"absolute", left:pctOf(l), top:-5, width:2, height:20, background:straddles?"#f59e0b":"#ef4444", borderRadius:1, boxShadow:`0 0 8px ${straddles?"#f59e0b":"#ef4444"}` }} />}
-                      </div>
-                      <div style={{ display:"flex", justifyContent:"space-between", fontFamily:"'Azeret Mono',monospace", fontSize:11 }}>
-                        <span style={{ color:"#6366f1" }}>{cb.floor} floor</span>
-                        <span style={{ color:"#c8d4e8", fontWeight:600 }}>
-                          {(finalProj??"?").toFixed?.(1)} proj
-                          {l > 0 && <span style={{ color:straddles?"#f59e0b":"#ef4444", marginLeft:8 }}>│ {l} line{straddles?" ⚠":""}</span>}
-                        </span>
-                        <span style={{ color:"#6366f1" }}>{cb.ceiling} ceil</span>
-                      </div>
-                    </div>
+                    <ConfidenceMeter
+                      proj={finalProj ?? cb.floor}
+                      line={l}
+                      floor={cb.floor}
+                      ceiling={cb.ceiling}
+                      trustScore={cb.trust_score ?? null}
+                      source={cb.source}
+                      std={cb.std}
+                      n={cb.n}
+                    />
                   );
                 })()}
               </div>
