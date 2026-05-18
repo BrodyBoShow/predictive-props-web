@@ -2060,68 +2060,99 @@ export default function NBAPropsModel() {
                     );
                   })()}
 
-                  {/* ── Results ── */}
-                  <div style={{ borderTop:"1px solid rgba(255,255,255,.06)" }}>
-                    {(() => {
-                      const topPlays = bulkProjResults.filter(r => r.grade === "LOCK" || r.grade === "ACTIONABLE");
-                      const lowerPlays = bulkProjResults.filter(r => r.grade === "WATCH" || r.grade === "SKIP");
-                      const GRADE_ORDER = { LOCK:0, ACTIONABLE:1, WATCH:2, SKIP:3 };
-                      return (
-                        <>
-                          {/* ── LOCK & ACTIONABLE — card grid ── */}
-                          {topPlays.length > 0 && (
-                            <div style={{ padding:"16px" }}>
-                              <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, letterSpacing:".18em",
-                                color:"#475569", marginBottom:12 }}>
-                                🔥 TOP PLAYS — {topPlays.filter(r=>r.grade==="LOCK").length} LOCK · {topPlays.filter(r=>r.grade==="ACTIONABLE").length} ACTIONABLE
+                  {/* ── Results — tier-grouped rows ── */}
+                  {bulkProjResults.length > 0 && (() => {
+                    const TIER_CONFIG = {
+                      LOCK:       { color:"#a855f7", label:"LOCK" },
+                      ACTIONABLE: { color:"#3b82f6", label:"ACTIONABLE" },
+                      WATCH:      { color:"#f59e0b", label:"WATCH" },
+                      SKIP:       { color:"#475569", label:"SKIP" },
+                    };
+                    const fmt = name => name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+                    return (
+                      <div style={{ borderTop:"1px solid rgba(255,255,255,.06)" }}>
+                        {["LOCK","ACTIONABLE","WATCH","SKIP"].map(tier => {
+                          const rows = bulkProjResults.filter(r => r.grade === tier);
+                          if (!rows.length) return null;
+                          const { color, label } = TIER_CONFIG[tier];
+                          return (
+                            <div key={tier}>
+                              {/* Tier header */}
+                              <div style={{ padding:"7px 16px", background:`${color}0e`,
+                                borderBottom:"1px solid rgba(255,255,255,.04)",
+                                borderTop:"1px solid rgba(255,255,255,.05)",
+                                display:"flex", alignItems:"center", gap:10,
+                                fontFamily:"'Azeret Mono',monospace" }}>
+                                <span style={{ fontSize:10, fontWeight:800, color, letterSpacing:".15em" }}>{label}</span>
+                                <span style={{ fontSize:9, color:"#334155" }}>{rows.length} prop{rows.length !== 1 ? "s" : ""}</span>
                               </div>
-                              <div className="prop-cards-grid" style={{ marginTop:0 }}>
-                                {topPlays
-                                  .sort((a,b) => (GRADE_ORDER[a.grade]-GRADE_ORDER[b.grade]) || (Math.abs(b.ev)-Math.abs(a.ev)))
-                                  .map((r, i) => (
-                                    <WinningPropCard key={`${r.name}-${r.propId}-${i}`}
-                                      r={r} propLabels={PROP_LABELS}
-                                      onOpen={() => { selGame(gid); setPname(r.name.split(" ").map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(" ")); setPkey(r.name); setShowBulk(false); }}
-                                    />
-                                  ))
-                                }
-                              </div>
-                            </div>
-                          )}
-
-                          {/* ── WATCH & SKIP — compact rows ── */}
-                          {lowerPlays.length > 0 && (
-                            <div style={{ borderTop:"1px solid rgba(255,255,255,.06)" }}>
-                              <div style={{ padding:"8px 16px", fontFamily:"'Azeret Mono',monospace", fontSize:9,
-                                letterSpacing:".14em", color:"#334155" }}>
-                                WATCH / SKIP ({lowerPlays.length})
-                              </div>
-                              {lowerPlays.map((r, i) => {
-                                const gc = GRADE_COLOR[r.grade];
-                                const dn = r.name.split(" ").map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(" ");
+                              {/* Rows */}
+                              {rows.map((r, i) => {
+                                const isOver = r.lean === "OVER";
+                                const ac = isOver ? "#10b981" : "#ef4444";
+                                const ageMin = r.pulledAt ? Math.floor((Date.now() - r.pulledAt) / 60000) : null;
                                 return (
-                                  <div key={i} style={{ padding:"7px 16px", borderTop:"1px solid rgba(255,255,255,.03)",
-                                    display:"flex", gap:10, alignItems:"center", flexWrap:"wrap",
-                                    fontFamily:"'Azeret Mono',monospace", fontSize:11, color:"#475569" }}>
-                                    <span style={{ minWidth:148, color:"#64748b" }}>{dn}</span>
-                                    <span style={{ fontSize:9, minWidth:28 }}>{r.team}</span>
-                                    <span style={{ fontSize:9 }}>{PROP_LABELS[r.propId]}</span>
-                                    <span style={{ color: r.lean==="OVER"?"#10b981":"#ef4444" }}>{r.lean==="OVER"?"↑":"↓"}{r.proj.toFixed(1)} /{r.line}</span>
-                                    <span style={{ color:gc, fontSize:9, fontWeight:700 }}>{r.grade}</span>
-                                    <span style={{ color:gc, fontSize:9 }}>{r.ev>=0?"+":""}{r.ev}%</span>
-                                    <button onClick={() => { selGame(gid); setPname(dn); setPkey(r.name); setShowBulk(false); }}
-                                      style={{ marginLeft:"auto", padding:"2px 8px", background:"rgba(99,102,241,.08)",
+                                  <div key={i}
+                                    style={{ padding:"8px 16px", borderBottom:"1px solid rgba(255,255,255,.03)",
+                                      display:"flex", alignItems:"center", gap:0,
+                                      fontFamily:"'Azeret Mono',monospace", fontSize:11,
+                                      transition:"background .12s", cursor:"default" }}
+                                    onMouseEnter={e => e.currentTarget.style.background = `${color}08`}
+                                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+
+                                    {/* Player — fixed width */}
+                                    <span style={{ color:"#e2e8f0", fontWeight:600, width:150, flexShrink:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                                      {fmt(r.name)}
+                                    </span>
+
+                                    {/* Team + Prop tag */}
+                                    <span style={{ color:"#475569", width:34, flexShrink:0, fontSize:10 }}>{r.team}</span>
+                                    <span style={{ background:`${color}18`, color, border:`1px solid ${color}33`,
+                                      borderRadius:4, padding:"1px 7px", fontSize:9, fontWeight:700,
+                                      width:36, textAlign:"center", flexShrink:0, letterSpacing:".04em" }}>
+                                      {PROP_LABELS[r.propId]}
+                                    </span>
+
+                                    {/* Line → direction → Proj */}
+                                    <span style={{ color:"#475569", marginLeft:12, fontSize:10 }}>{r.line}</span>
+                                    <span style={{ color:ac, margin:"0 6px", fontSize:13, fontWeight:700 }}>{isOver ? "→" : "←"}</span>
+                                    <span style={{ color:ac, fontWeight:800, fontSize:13 }}>{r.proj.toFixed(1)}</span>
+                                    <span style={{ color:ac, fontSize:9, marginLeft:5, fontWeight:600, letterSpacing:".04em" }}>{isOver ? "OVER" : "UNDER"}</span>
+
+                                    {/* EV */}
+                                    <span style={{ color, fontWeight:700, marginLeft:14, minWidth:58 }}>
+                                      {r.ev >= 0 ? "+" : ""}{r.ev}%
+                                    </span>
+
+                                    {/* Flags */}
+                                    <span style={{ color:"#334155", fontSize:10, flex:1 }}>
+                                      {r.band?.trust_score != null && (
+                                        <span style={{ color: r.band.trust_score >= 70 ? "#10b981" : r.band.trust_score >= 40 ? "#f59e0b" : "#ef4444" }}>
+                                          T{r.band.trust_score}
+                                        </span>
+                                      )}
+                                      {r.qKelly > 0 && <span style={{ color:"#818cf8", marginLeft:8 }}>¼K {r.qKelly}%</span>}
+                                      {r.sharedConflict && <span style={{ color:"#f59e0b", marginLeft:6 }} title="Teammate conflict">⚡</span>}
+                                      {r.driftDown      && <span style={{ color:"#f59e0b", marginLeft:6 }} title="Recent over-projection">↘</span>}
+                                      {ageMin != null   && <span style={{ color: ageMin > 15 ? "#ef4444" : "#334155", marginLeft:6, fontSize:9 }}>{ageMin}m</span>}
+                                    </span>
+
+                                    {/* Open */}
+                                    <button onClick={() => { selGame(gid); setPname(fmt(r.name)); setPkey(r.name); setShowBulk(false); }}
+                                      style={{ flexShrink:0, padding:"2px 8px", background:"rgba(99,102,241,.08)",
                                         border:"1px solid rgba(99,102,241,.2)", borderRadius:4, color:"#818cf8",
-                                        cursor:"pointer", fontSize:8 }}>OPEN →</button>
+                                        cursor:"pointer", fontSize:8, fontFamily:"'Azeret Mono',monospace" }}>
+                                      OPEN →
+                                    </button>
                                   </div>
                                 );
                               })}
                             </div>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                   </div>
                 )}
               </div>
