@@ -326,6 +326,20 @@ const BetCard = ({ r, propLabels, onOpen }) => {
       <div className="bet-card-foot">
         {trust != null && <span className="bet-card-tscore" style={{ color:trustC }}>T{trust}</span>}
         {r.qKelly > 0  && <span className="bet-card-kelly">¼K {r.qKelly}%</span>}
+        {r.corrStack && (
+          <span style={{ fontSize:9, fontWeight:800, color:"#10b981", background:"rgba(16,185,129,.12)",
+            border:"1px solid rgba(16,185,129,.3)", borderRadius:3, padding:"1px 5px", letterSpacing:".06em" }}
+            title="Multiple props for this player align — correlated positive stack">
+            STACK ↗
+          </span>
+        )}
+        {r.corrMixed && !r.corrStack && (
+          <span style={{ fontSize:9, color:"#f59e0b", background:"rgba(245,158,11,.08)",
+            border:"1px solid rgba(245,158,11,.25)", borderRadius:3, padding:"1px 5px" }}
+            title="This player's props send mixed signals — verify before stacking">
+            MIXED
+          </span>
+        )}
         {r.sharedConflict && <span className="bet-card-flag" style={{ color:"#f59e0b" }} title="Teammate conflict">⚡</span>}
         {r.driftDown      && <span className="bet-card-flag" style={{ color:"#f59e0b" }} title="Recent over-projection">↘</span>}
         {onOpen && (
@@ -1099,6 +1113,45 @@ export default function NBAPropsModel() {
           r.qKelly = +(k * 0.25 * 100).toFixed(1);
         }
       });
+    });
+
+    // ── Correlated stack detection ─────────────────────────────────────────
+    // Group results by player. Detect when the same player has multiple OVERs
+    // on statistically correlated props — this is a genuine positive signal
+    // (the model agrees across different markets for the same player).
+    // Positive stacks: pts+ast (playmaker usage), pts+reb (volume game),
+    //   pts+ast+reb (full PRA stack). Mixed signals are flagged too.
+    const CORR_POSITIVE = [
+      new Set(["points","assists"]),          // playmaker: pts+ast go together
+      new Set(["points","rebounds"]),         // volume: fast game lifts both
+      new Set(["points","assists","rebounds"]),
+      new Set(["assists","rebounds"]),
+    ];
+    const byPlayer = {};
+    results.forEach(r => {
+      if (!byPlayer[r.name]) byPlayer[r.name] = [];
+      byPlayer[r.name].push(r);
+    });
+    Object.values(byPlayer).forEach(group => {
+      if (group.length < 2) return;
+      const overProps  = new Set(group.filter(r => r.lean === "OVER"  && r.grade !== "SKIP").map(r => r.propId));
+      const underProps = new Set(group.filter(r => r.lean === "UNDER" && r.grade !== "SKIP").map(r => r.propId));
+      // Check for positive correlated stacks
+      const isStack = CORR_POSITIVE.some(s => {
+        const sArr = [...s];
+        return sArr.every(p => overProps.has(p));
+      });
+      if (isStack && overProps.size >= 2) {
+        group.forEach(r => { if (r.lean === "OVER" && r.grade !== "SKIP") r.corrStack = true; });
+      }
+      // Flag mixed: player has OVER on one correlated prop but UNDER on another
+      const mixedPairs = [["points","assists"],["points","rebounds"]];
+      const isMixed = mixedPairs.some(([a, b]) =>
+        (overProps.has(a) && underProps.has(b)) || (underProps.has(a) && overProps.has(b))
+      );
+      if (isMixed) {
+        group.forEach(r => { r.corrMixed = true; });
+      }
     });
 
     const gradeOrder = { LOCK: 0, ACTIONABLE: 1, WATCH: 2, SKIP: 3 };
