@@ -1181,6 +1181,11 @@ export default function NBAPropsModel() {
             timestamps[player.name][propId] = now;
             filled++;
           } else {
+            if (r.status === 503 && d.error?.includes("quota")) {
+              setBulkOddsStatus("⚠ Odds API quota exhausted — upgrade plan at the-odds-api.com");
+              setBulkOddsLoading(false);
+              return;
+            }
             missing++;
           }
         } catch { missing++; }
