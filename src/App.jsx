@@ -2291,13 +2291,12 @@ export default function NBAPropsModel() {
                 {/* Quick stat pills */}
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:14 }}>
                   {[
-                    { label:"BOOK",    val: l || "—",               color:"#94a3b8" },
-                    { label:"PO AVG",  val: proj.propPO ?? "—",     color:"#60a5fa" },
-                    { label:"L5 AVG",  val: proj.propRecent ?? "—", color:"#f59e0b" },
-                    { label:"BLENDED", val: proj.blended ?? "—",    color:"#94a3b8" },
+                    { label:"BOOK LINE", val: l || "—",               color:"#94a3b8" },
+                    { label:"PO AVG",    val: proj.propPO ?? "—",     color:"#60a5fa" },
+                    { label:"L5 AVG",    val: proj.propRecent ?? "—", color:"#f59e0b" },
                     ...(serverCorr?.confidenceBand ? [
-                      { label:"FLOOR",   val: serverCorr.confidenceBand.floor,    color:"#475569" },
-                      { label:"CEILING", val: serverCorr.confidenceBand.ceiling,  color:"#475569" },
+                      { label:"FLOOR",  val: serverCorr.confidenceBand.floor,   color:"#475569" },
+                      { label:"CEILING",val: serverCorr.confidenceBand.ceiling, color:"#475569" },
                       ...(serverCorr.confidenceBand.trust_score != null ? [{
                         label:"TRUST",
                         val: serverCorr.confidenceBand.trust_score,
