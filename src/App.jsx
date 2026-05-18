@@ -1160,52 +1160,72 @@ export default function NBAPropsModel() {
     setBulkRunning(false);
   }, [game, bulkRosterPlayers, bulkLines, bulkProps, effectiveDB, getResiduals, buildResidualCtx]);
 
-  // ── Bulk live-line fetch — pulls Odds API slate (server-cached) for all players × props ──
+  // ── Bulk live-line fetch — ONE server call, server does combined-markets per game ──
   const fetchBulkLines = useCallback(async () => {
     if (!bulkRosterPlayers.length || !bulkProps.length) return;
     setBulkOddsLoading(true);
     setBulkOddsStatus("Fetching live lines…");
-    let filled = 0, missing = 0;
-    const updates = {};
-    const timestamps = {};
-    const now = Date.now();
-    for (const player of bulkRosterPlayers) {
-      updates[player.name] = {};
-      timestamps[player.name] = {};
-      for (const propId of bulkProps) {
-        try {
-          const r = await fetch(`${API_BASE}/live-line/${encodeURIComponent(player.name)}/${propId}`);
-          const d = await r.json();
-          if (r.ok && d.consensus_line != null) {
-            updates[player.name][propId] = String(d.consensus_line);
+    try {
+      const r = await fetch(`${API_BASE}/live-lines-bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          players: bulkRosterPlayers.map(p => p.name),
+          props:   bulkProps,
+        }),
+      });
+      const d = await r.json();
+      if (r.status === 503 && d.error?.includes("quota")) {
+        setBulkOddsStatus(`⚠ Odds API quota exhausted — upgrade plan at the-odds-api.com (remaining: ${d.quota_remaining ?? "?"})`);
+        setBulkOddsLoading(false);
+        return;
+      }
+      if (!r.ok) {
+        setBulkOddsStatus(`⚠ ${d.error || "fetch failed"}`);
+        setBulkOddsLoading(false);
+        return;
+      }
+      const linesByPlayer = d.lines || {};
+      const now = Date.now();
+      const updates = {};
+      const timestamps = {};
+      for (const player of bulkRosterPlayers) {
+        const lower = player.name.toLowerCase();
+        const per = linesByPlayer[lower] || linesByPlayer[player.name] || {};
+        updates[player.name] = {};
+        timestamps[player.name] = {};
+        for (const propId of bulkProps) {
+          const v = per[propId];
+          if (v != null) {
+            updates[player.name][propId] = String(v);
             timestamps[player.name][propId] = now;
-            filled++;
-          } else {
-            if (r.status === 503 && d.error?.includes("quota")) {
-              setBulkOddsStatus("⚠ Odds API quota exhausted — upgrade plan at the-odds-api.com");
-              setBulkOddsLoading(false);
-              return;
-            }
-            missing++;
           }
-        } catch { missing++; }
+        }
       }
+      setBulkLines(prev => {
+        const next = { ...prev };
+        for (const [name, props] of Object.entries(updates)) {
+          next[name] = { ...(next[name] || {}), ...props };
+        }
+        return next;
+      });
+      setBulkLinePulledAt(prev => {
+        const next = { ...prev };
+        for (const [name, ts] of Object.entries(timestamps)) {
+          next[name] = { ...(next[name] || {}), ...ts };
+        }
+        return next;
+      });
+      const filled  = d.filled  ?? 0;
+      const missing = d.missing ?? 0;
+      const qLeft   = d.quota_remaining;
+      setBulkOddsStatus(
+        `${filled} line${filled !== 1 ? "s" : ""} filled · ${missing} not posted` +
+        (qLeft != null ? ` · quota left: ${qLeft}` : "")
+      );
+    } catch (e) {
+      setBulkOddsStatus(`⚠ ${e.message || "network error"}`);
     }
-    setBulkLines(prev => {
-      const next = { ...prev };
-      for (const [name, props] of Object.entries(updates)) {
-        next[name] = { ...(next[name] || {}), ...props };
-      }
-      return next;
-    });
-    setBulkLinePulledAt(prev => {
-      const next = { ...prev };
-      for (const [name, ts] of Object.entries(timestamps)) {
-        next[name] = { ...(next[name] || {}), ...ts };
-      }
-      return next;
-    });
-    setBulkOddsStatus(`${filled} line${filled !== 1 ? "s" : ""} filled · ${missing} not posted`);
     setBulkOddsLoading(false);
   }, [bulkRosterPlayers, bulkProps]);
 
