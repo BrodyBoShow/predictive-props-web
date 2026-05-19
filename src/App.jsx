@@ -2531,6 +2531,54 @@ export default function NBAPropsModel() {
             confGrade === "SKIP"       ? "#64748b" :
             // legacy S/A/B/NO BET fallback (client-only result before server replies)
             confGrade === "S-TIER" ? "#a855f7" : confGrade === "A-TIER" ? "#10b981" : confGrade === "B-TIER" ? "#2563eb" : "#64748b";
+          const analysisBand = serverCorr?.confidenceBand || null;
+          const analysisMC = serverCorr?.monteCarlo || {};
+          const analysisDataQuality = serverCorr?.dataQuality || {};
+          const analysisBreakdown = serverCorr?.breakdown || {};
+          const analysisFeatures = analysisBreakdown.xgb_features_debug || {};
+          const baseline = serverCorr?.base ?? proj.blended;
+          const baselineMovePct = baseline > 0 ? ((finalProj - baseline) / baseline) * 100 : 0;
+          const sideProb = finalVerdict === "over" ? analysisMC.prob_over : finalVerdict === "under" ? analysisMC.prob_under : null;
+          const lineInBand = analysisBand && l > 0 && analysisBand.floor <= l && analysisBand.ceiling >= l;
+          const edgeText = `${Math.abs(finalEvPct).toFixed(1)}%`;
+          const moveSupportsSide = finalVerdict === "over" ? baselineMovePct >= -1 : finalVerdict === "under" ? baselineMovePct <= 1 : true;
+          const signalPros = [];
+          const signalCons = [];
+          const addSignal = (list, title, text) => list.push({ title, text });
+          if (Math.abs(finalEvPct) >= 7) addSignal(signalPros, "Book Gap", `${edgeText} model edge to the ${finalVerdict.toUpperCase()}.`);
+          else addSignal(signalCons, "Thin Edge", `${edgeText} edge is not enough by itself.`);
+          if (sideProb != null && sideProb >= 0.585) addSignal(signalPros, "Simulation", `${(sideProb * 100).toFixed(1)}% hit rate in model distribution.`);
+          else if (sideProb != null) addSignal(signalCons, "Simulation", `${(sideProb * 100).toFixed(1)}% is below premium confidence.`);
+          if (analysisBand?.cv != null && analysisBand.cv < 0.35) addSignal(signalPros, "Variance", `Stable L5 band, CV ${analysisBand.cv.toFixed(3)}.`);
+          else if (analysisBand?.cv != null) addSignal(signalCons, "Variance", `Wide L5 band, CV ${analysisBand.cv.toFixed(3)}.`);
+          if (lineInBand) addSignal(signalCons, "Line Inside Band", `Book line ${l} sits inside ${analysisBand.floor}-${analysisBand.ceiling}.`);
+          if (Math.abs(baselineMovePct) >= 25) addSignal(signalCons, "Large Calibration Move", `${Math.abs(baselineMovePct).toFixed(1)}% ${baselineMovePct >= 0 ? "above" : "below"} baseline needs stronger confirmation.`);
+          else if (Math.abs(baselineMovePct) >= 8 && moveSupportsSide) addSignal(signalPros, "Calibration Move", `${Math.abs(baselineMovePct).toFixed(1)}% ${baselineMovePct >= 0 ? "above" : "below"} baseline and aligned with ${finalVerdict.toUpperCase()}.`);
+          else if (Math.abs(baselineMovePct) >= 8) addSignal(signalCons, "Calibration Move", `${Math.abs(baselineMovePct).toFixed(1)}% move cuts against the side.`);
+          if (analysisDataQuality.has_tracking) addSignal(signalPros, "Tracking", "Player tracking data was included in calibration.");
+          else addSignal(signalCons, "Tracking", "No player tracking signal for this run.");
+          if (analysisFeatures.opp_def_roll10 != null) {
+            const def = +analysisFeatures.opp_def_roll10;
+            const defText = def >= 115 ? "weaker defensive environment" : def <= 111 ? "tough defensive environment" : "neutral defensive environment";
+            (finalVerdict === "over" && def >= 115) || (finalVerdict === "under" && def <= 111)
+              ? addSignal(signalPros, "Matchup", `${ot} rates as a ${defText}.`)
+              : addSignal(signalCons, "Matchup", `${ot} is a ${defText}.`);
+          }
+          const visiblePros = signalPros.slice(0, 4);
+          const visibleCons = signalCons.slice(0, 4);
+          const AnalystList = ({ title, items, tone }) => (
+            <div style={{ background:"rgba(15,23,42,.52)", border:`1px solid ${tone}33`, borderRadius:10, padding:"12px 14px", minHeight:132 }}>
+              <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, letterSpacing:".18em", color:tone, fontWeight:800, marginBottom:10 }}>{title}</div>
+              <div style={{ display:"grid", gap:8 }}>
+                {(items.length ? items : [{ title:"Neutral", text:"No strong signal fired here." }]).map((x, i) => (
+                  <div key={`${title}-${i}`} style={{ display:"grid", gap:2 }}>
+                    <div style={{ fontSize:11, color:"#e8f0ff", fontWeight:800 }}>{x.title}</div>
+                    <div style={{ fontSize:11, color:"#94a3b8", lineHeight:1.35 }}>{x.text}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
           return (
             <div className="rp" data-grade={confGrade}>
               {/* ── HERO — slot-machine reveal ───────────────────────── */}
@@ -2565,7 +2613,73 @@ export default function NBAPropsModel() {
                 </div>
 
                 {/* Big number + grade — the slot machine moment */}
-                <div style={{ display:"grid", gridTemplateColumns:"1fr auto", gap:16, alignItems:"center", marginBottom:18 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:12, alignItems:"stretch", marginBottom:14 }}>
+                  <div style={{ background:`linear-gradient(160deg, ${confGradeColor}18, rgba(15,23,42,.68))`, border:`1px solid ${confGradeColor}44`, borderRadius:12, padding:"16px 16px", display:"grid", alignContent:"space-between", minHeight:210, overflow:"hidden" }}>
+                    <div>
+                      <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, letterSpacing:".2em", color:"#64748b", fontWeight:800, marginBottom:10 }}>PROJECTION</div>
+                      <div style={{ display:"grid", gap:4 }}>
+                        <div className="proj-hero-num" style={{ fontSize:58, fontWeight:900, fontFamily:"'Azeret Mono',monospace", color:"#e8f0ff", lineHeight:.95, letterSpacing:0 }}>{finalProj}</div>
+                        <div>
+                          <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:18, color:"#3b82f6", fontWeight:800, lineHeight:1 }}>{pr.label3}</div>
+                          <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, color:"#475569", letterSpacing:".12em", marginTop:4 }}>{serverCorr ? "SERVER MODEL" : "CLIENT MODEL"}</div>
+                        </div>
+                      </div>
+                      <div style={{ height:1, background:"rgba(255,255,255,.08)", margin:"14px 0 12px" }} />
+                      <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                        <div style={{ background:`${finalEc}1e`, border:`1px solid ${finalEc}`, borderRadius:8, padding:"7px 12px", color:finalEc, fontWeight:900, fontSize:16, fontFamily:"'Azeret Mono',monospace", letterSpacing:".08em" }}>{finalVerdict.toUpperCase()}</div>
+                        <div style={{ color:finalEc, fontFamily:"'Azeret Mono',monospace", fontSize:13, fontWeight:800 }}>{finalEdge > 0 ? "+" : ""}{finalEdge} vs line</div>
+                      </div>
+                    </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:14 }}>
+                      <div>
+                        <div style={{ fontFamily:"'Azeret Mono',monospace", color:"#64748b", fontSize:9, letterSpacing:".14em" }}>BOOK</div>
+                        <div style={{ color:"#e8f0ff", fontSize:18, fontWeight:800 }}>{l || "—"}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontFamily:"'Azeret Mono',monospace", color:"#64748b", fontSize:9, letterSpacing:".14em" }}>EDGE</div>
+                        <div style={{ color:finalEc, fontSize:18, fontWeight:800 }}>{finalEvPct > 0 ? "+" : ""}{finalEvPct}%</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ background:"rgba(15,23,42,.46)", border:"1px solid rgba(255,255,255,.08)", borderRadius:12, padding:14, minHeight:210 }}>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:12 }}>
+                      <div>
+                        <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, letterSpacing:".2em", color:"#64748b", fontWeight:800 }}>MATCHUP READ</div>
+                        <div style={{ color:"#e8f0ff", fontSize:16, fontWeight:900, marginTop:4 }}>{pt} vs {ot}</div>
+                      </div>
+                      <div className="grade-badge-hero" style={{ background:`${confGradeColor}18`, border:`1px solid ${confGradeColor}`, borderRadius:10, padding:"9px 12px", textAlign:"center", minWidth:86 }}>
+                        <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:8, letterSpacing:".2em", color:confGradeColor, marginBottom:4, opacity:.75 }}>GRADE</div>
+                        <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:17, fontWeight:900, color:confGradeColor, lineHeight:1 }}>{confGrade}</div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize:13, color:"#c8d4e8", lineHeight:1.55, marginBottom:14 }}>
+                      {dname} projects <strong style={{ color:finalEc }}>{finalVerdict.toUpperCase()}</strong> the {l} line by <strong>{Math.abs(finalEdge)} {pr.label3}</strong>. The model moved {Math.abs(baselineMovePct).toFixed(1)}% {baselineMovePct >= 0 ? "above" : "below"} baseline, and that move {moveSupportsSide ? "supports" : "conflicts with"} the side.
+                    </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+                      {[
+                        ["BASE", baseline, "#60a5fa"],
+                        ["PO AVG", proj.propPO ?? "—", "#818cf8"],
+                        ["HIT PROB", sideProb != null ? `${(sideProb*100).toFixed(1)}%` : "—", sideProb != null && sideProb >= .585 ? "#10b981" : "#f59e0b"],
+                      ].map(([label, val, color]) => (
+                        <div key={label} style={{ background:"rgba(255,255,255,.035)", border:"1px solid rgba(255,255,255,.07)", borderRadius:8, padding:"8px 9px" }}>
+                          <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:8, color:"#64748b", letterSpacing:".14em" }}>{label}</div>
+                          <div style={{ color, fontSize:15, fontWeight:900, marginTop:3 }}>{val}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <button type="button" onClick={() => setShowAnalysis(true)} style={{ marginTop:12, width:"100%", border:"1px solid rgba(99,102,241,.35)", background:"rgba(99,102,241,.09)", color:"#818cf8", borderRadius:8, padding:"8px 10px", cursor:"pointer", fontFamily:"'Azeret Mono',monospace", fontSize:10, fontWeight:800, letterSpacing:".12em" }}>
+                      MORE DATA
+                    </button>
+                  </div>
+
+                  <div style={{ display:"grid", gap:10 }}>
+                    <AnalystList title="PROS" items={visiblePros} tone="#10b981" />
+                    <AnalystList title="CONS" items={visibleCons} tone="#ef4444" />
+                  </div>
+                </div>
+
+                <div style={{ display:"none", gridTemplateColumns:"1fr auto", gap:16, alignItems:"center", marginBottom:18 }}>
                   <div>
                     {/* Projection number */}
                     <div style={{ display:"flex", alignItems:"baseline", gap:12, marginBottom:12 }}>
@@ -2624,7 +2738,7 @@ export default function NBAPropsModel() {
                     </div>
                   ))}
                   {/* ¼ Kelly */}
-                  {l > 0 && finalEvPct !== 0 && (() => {
+                  {false && l > 0 && finalEvPct !== 0 && (() => {
                     const spMc = serverCorr?.monteCarlo ?? null;
                     const spIsOver = finalEvPct > 0;
                     const spMcProb = spMc ? (spIsOver ? spMc.prob_over : spMc.prob_under) : null;
@@ -2640,6 +2754,23 @@ export default function NBAPropsModel() {
                       </div>
                     );
                   })()}
+                </div>
+
+                <div style={{ background:"rgba(15,23,42,.36)", border:"1px solid rgba(255,255,255,.07)", borderRadius:10, padding:"10px 12px", marginBottom:14 }}>
+                  <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, letterSpacing:".18em", color:"#64748b", fontWeight:800, marginBottom:9 }}>CALIBRATION PATH</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))", gap:8 }}>
+                    {[
+                      ["Baseline", `${baseline} ${pr.label3}`, "#60a5fa"],
+                      ["Context", `${baselineMovePct >= 0 ? "+" : ""}${baselineMovePct.toFixed(1)}%`, moveSupportsSide ? "#10b981" : "#ef4444"],
+                      ["Variance", analysisBand?.cv != null ? `CV ${analysisBand.cv.toFixed(3)}` : "n/a", analysisBand?.cv != null && analysisBand.cv < .35 ? "#10b981" : "#f59e0b"],
+                      ["Final", `${finalProj} ${pr.label3}`, finalEc],
+                    ].map(([label, val, color]) => (
+                      <div key={label} style={{ display:"flex", justifyContent:"space-between", gap:10, alignItems:"center", background:"rgba(255,255,255,.03)", border:"1px solid rgba(255,255,255,.06)", borderRadius:8, padding:"8px 10px" }}>
+                        <span style={{ fontFamily:"'Azeret Mono',monospace", color:"#64748b", fontSize:9, letterSpacing:".12em" }}>{label}</span>
+                        <strong style={{ color, fontSize:12 }}>{val}</strong>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Confidence band visual */}
