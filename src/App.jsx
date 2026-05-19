@@ -939,7 +939,10 @@ export default function NBAPropsModel() {
   // ── Auto-fetch box score from server → pre-fill "log actual" field ──────────
   // Declared here so effectiveDB is already in scope (avoids TDZ crash)
   const BOX_STAT_KEY = { points: "pts", rebounds: "reb", assists: "ast",
-                         steals: "stl", blocks: "blk", turnovers: "tov" };
+                         steals: "stl", blocks: "blk", turnovers: "tov",
+                         three_pointers: "fg3m", three_point_attempts: "fg3a",
+                         field_goal_attempts: "fga", two_point_attempts: "fg2a",
+                         field_goal_made: "fgm" };
   const handleFetchBox = useCallback(async (propId) => {
     const pid = pkey ? effectiveDB[pkey]?.pid : null;
     if (!pid) return;
@@ -993,7 +996,8 @@ export default function NBAPropsModel() {
 
   const runBulkProjections = useCallback(async () => {
     if (!game) return;
-    const L5_KEY = { points: "pts", rebounds: "reb", assists: "ast", steals: "stl", blocks: "blk", turnovers: "tov" };
+    const L5_KEY = { points: "pts", rebounds: "reb", assists: "ast", steals: "stl", blocks: "blk", turnovers: "tov",
+      three_pointers: "fg3m", three_point_attempts: "fg3a", field_goal_attempts: "fga", two_point_attempts: "fg2a", field_goal_made: "fgm" };
     const tasks = [];
     for (const player of bulkRosterPlayers) {
       const propsForPlayer = bulkLines[player.name] || {};
@@ -1028,7 +1032,8 @@ export default function NBAPropsModel() {
       const gameLogFull = recent?.gameLogFull || recent?.gameLog || [];
       const gameLog = recent?.gameLog || [];
       // Use server-aggregated L5 avg (same source as single-player)
-      const L5_AGG_KEY = { points: "ppg", rebounds: "rpg", assists: "apg", steals: "spg", blocks: "bpg", turnovers: "topg" };
+      const L5_AGG_KEY = { points: "ppg", rebounds: "rpg", assists: "apg", steals: "spg", blocks: "bpg", turnovers: "topg",
+        three_pointers: "fg3mpg", three_point_attempts: "fg3apg", field_goal_attempts: "fgapg", two_point_attempts: "fg2apg", field_goal_made: "fgmpg" };
       const l5AggKey = L5_AGG_KEY[task.propId];
       const l5avg = l5AggKey && recent?.recent?.[l5AggKey] != null
         ? +Number(recent.recent[l5AggKey]).toFixed(2)
@@ -2030,7 +2035,11 @@ export default function NBAPropsModel() {
 
         {/* ── Bulk Projection Panel ──────────────────────────────────────────── */}
         {showBulk && game && (() => {
-          const PROP_LABELS = { points:"PTS", rebounds:"REB", assists:"AST", steals:"STL", blocks:"BLK", turnovers:"TOV" };
+          const PROP_LABELS = {
+            points:"PTS", rebounds:"REB", assists:"AST", steals:"STL", blocks:"BLK", turnovers:"TOV",
+            three_pointers:"3PM", three_point_attempts:"3PA",
+            field_goal_attempts:"FGA", two_point_attempts:"2PA", field_goal_made:"FGM",
+          };
           const GRADE_COLOR = { LOCK:"#10b981", ACTIONABLE:"#3b82f6", WATCH:"#f59e0b", SKIP:"#475569" };
           const filledCount = bulkRosterPlayers.reduce((acc, pl) => {
             const row = bulkLines[pl.name] || {};
