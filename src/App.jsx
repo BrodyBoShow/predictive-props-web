@@ -2571,6 +2571,78 @@ export default function NBAPropsModel() {
               ? addSignal(signalPros, "Matchup", `${ot} rates as a ${defText}.`)
               : addSignal(signalCons, "Matchup", `${ot} is a ${defText}.`);
           }
+          const oppDefVal = analysisFeatures.opp_def_roll10 != null ? +analysisFeatures.opp_def_roll10 : +(otd?.dEFF || 0);
+          const oppPaceVal = analysisFeatures.opp_pace_roll10 != null ? +analysisFeatures.opp_pace_roll10 : +(otd?.rsPace || proj.gamePace || 0);
+          const fg3Vs = analysisFeatures.fg3_vs_avg != null ? +analysisFeatures.fg3_vs_avg : +(teamDefense?.[ot]?.fg3VsAvg || 0);
+          const rimVs = analysisFeatures.rim_vs_avg != null ? +analysisFeatures.rim_vs_avg : +(teamDefense?.[ot]?.rimVsAvg || 0);
+          const playerTrack = trackingStats?.[pkey] || {};
+          const shotMix = scoringBreakdown?.[pkey] || {};
+          const teamUsage = (g?.[pt] || [])
+            .map(name => {
+              const p = effectiveDB[name];
+              return { name, usg: +(p?.po?.usg ?? p?.rs?.usg ?? 0), min: +(p?.po?.min ?? p?.rs?.min ?? 0) };
+            })
+            .filter(x => x.usg > 0)
+            .sort((a, b) => b.usg - a.usg);
+          const myUsage = +(player.po?.usg ?? player.rs?.usg ?? 0);
+          const usageRank = teamUsage.findIndex(x => x.name === player.key) + 1;
+          const usagePeers = teamUsage.filter(x => x.name !== player.key).slice(0, 2).map(x => `${dn(x.name)} ${x.usg.toFixed(1)}%`);
+          const matchupChips = [
+            oppDefVal ? { k:"OPP DEF", v:oppDefVal.toFixed(1), c:oppDefVal >= 115 ? "#10b981" : oppDefVal <= 111 ? "#ef4444" : "#f59e0b" } : null,
+            oppPaceVal ? { k:"PACE", v:oppPaceVal.toFixed(1), c:oppPaceVal >= 99 ? "#10b981" : oppPaceVal <= 94 ? "#ef4444" : "#94a3b8" } : null,
+            myUsage ? { k:"USAGE", v:`${myUsage.toFixed(1)}%`, c:"#818cf8" } : null,
+            player.po?.min ? { k:"MIN", v:player.po.min, c:"#60a5fa" } : null,
+          ].filter(Boolean);
+          const matchupNotes = [];
+          if (usageRank > 0) {
+            matchupNotes.push({
+              title: `Role: ${usageRank === 1 ? "primary option" : `usage rank #${usageRank}`}`,
+              text: `${dname} owns ${myUsage.toFixed(1)}% usage${usagePeers.length ? `; next ${pt} pressure comes from ${usagePeers.join(" and ")}.` : "."}`,
+            });
+          }
+          if (oppDefVal) {
+            matchupNotes.push({
+              title: oppDefVal >= 115 ? "Opponent defense gives room" : oppDefVal <= 111 ? "Opponent defense is a headwind" : "Opponent defense is neutral",
+              text: `${ot} defensive efficiency sits at ${oppDefVal.toFixed(1)}. That ${oppDefVal >= 115 ? "raises" : oppDefVal <= 111 ? "lowers" : "does not strongly move"} the raw scoring environment.`,
+            });
+          }
+          if (pr.id === "points" || pr.id === "three_pointers" || pr.id === "field_goal_attempts" || pr.id === "field_goal_made" || pr.id === "two_point_attempts" || pr.id === "three_point_attempts") {
+            const profileBits = [];
+            if (shotMix.pctPts3pt != null) profileBits.push(`${shotMix.pctPts3pt}% pts from 3`);
+            if (shotMix.pctPtsPaint != null) profileBits.push(`${shotMix.pctPtsPaint}% paint`);
+            if (shotMix.pctPtsFt != null) profileBits.push(`${shotMix.pctPtsFt}% FT`);
+            if (playerTrack.driveFga) profileBits.push(`${playerTrack.driveFga} drives FGA`);
+            if (playerTrack.pullUpFga) profileBits.push(`${playerTrack.pullUpFga} pull-up FGA`);
+            matchupNotes.push({
+              title: "Shot profile fit",
+              text: profileBits.length
+                ? `${profileBits.slice(0, 4).join(" · ")}. ${fg3Vs > .02 ? `${ot} allows extra 3PA.` : rimVs > .02 ? `${ot} is soft at the rim.` : "No obvious scheme boost from shot profile."}`
+                : "Shot-profile data is limited for this player/prop.",
+            });
+          }
+          if (pr.id === "assists" || pr.id === "pa" || pr.id === "pra" || pr.id === "ra") {
+            matchupNotes.push({
+              title: "Creation profile",
+              text: playerTrack.potentialAst
+                ? `${playerTrack.potentialAst} potential assists/g with ${((playerTrack.astConvRate || 0) * 100).toFixed(0)}% conversion. This tells us whether the assist line is volume-backed or make-dependent.`
+                : "No reliable potential-assist tracking for this run.",
+            });
+          }
+          if (pr.id === "rebounds" || pr.id === "pra" || pr.id === "pr" || pr.id === "ra") {
+            matchupNotes.push({
+              title: "Board chances",
+              text: playerTrack.rebChancePct
+                ? `${playerTrack.rebChancePct}% of rebound chances secured; chance volume matters more than raw RPG here.`
+                : "No reliable rebound-chance tracking for this run.",
+            });
+          }
+          if (injuryContext?.outPlayers?.length) {
+            matchupNotes.push({
+              title: "Usage opened up",
+              text: `${injuryContext.outPlayers.slice(0, 3).map(x => dn(x.name)).join(", ")} OUT creates ${injuryContext.boostPPG} projected scoring load to redistribute.`,
+            });
+          }
+          const visibleMatchupNotes = matchupNotes.slice(0, 4);
           const visiblePros = signalPros.slice(0, 4);
           const visibleCons = signalCons.slice(0, 4);
           const AnalystList = ({ title, items, tone }) => (
@@ -2675,18 +2747,22 @@ export default function NBAPropsModel() {
                         <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:17, fontWeight:900, color:confGradeColor, lineHeight:1 }}>{decisionLabel}</div>
                       </div>
                     </div>
-                    <div style={{ fontSize:13, color:"#c8d4e8", lineHeight:1.55, marginBottom:14 }}>
-                      {decisionCopy} {dname} projects <strong style={{ color:finalEc }}>{finalVerdict.toUpperCase()}</strong> the {l} line by <strong>{Math.abs(finalEdge)} {pr.label3}</strong>.
+                    <div style={{ fontSize:13, color:"#c8d4e8", lineHeight:1.5, marginBottom:12 }}>
+                      {decisionCopy} {dname} projects <strong style={{ color:finalEc }}>{finalVerdict.toUpperCase()}</strong> by <strong>{Math.abs(finalEdge)} {pr.label3}</strong>, but the matchup read decides whether that lean is actually playable.
                     </div>
-                    <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
-                      {[
-                        ["BASE", baseline, "#60a5fa"],
-                        ["PO AVG", proj.propPO ?? "—", "#818cf8"],
-                        ["HIT PROB", sideProb != null ? `${(sideProb*100).toFixed(1)}%` : "—", sideProb != null && sideProb >= .585 ? "#10b981" : "#f59e0b"],
-                      ].map(([label, val, color]) => (
-                        <div key={label} style={{ background:"rgba(255,255,255,.035)", border:"1px solid rgba(255,255,255,.07)", borderRadius:8, padding:"8px 9px" }}>
-                          <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:8, color:"#64748b", letterSpacing:".14em" }}>{label}</div>
-                          <div style={{ color, fontSize:15, fontWeight:900, marginTop:3 }}>{val}</div>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(72px,1fr))", gap:7, marginBottom:12 }}>
+                      {matchupChips.map(x => (
+                        <div key={x.k} style={{ background:"rgba(255,255,255,.035)", border:"1px solid rgba(255,255,255,.07)", borderRadius:8, padding:"7px 8px" }}>
+                          <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:8, color:"#64748b", letterSpacing:".12em" }}>{x.k}</div>
+                          <div style={{ color:x.c, fontSize:14, fontWeight:900, marginTop:2 }}>{x.v}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ display:"grid", gap:8 }}>
+                      {(visibleMatchupNotes.length ? visibleMatchupNotes : [{ title:"Context", text:"No strong matchup-specific signal fired; projection leans more on baseline and line value." }]).map((x, i) => (
+                        <div key={i} style={{ background:"rgba(0,0,0,.14)", border:"1px solid rgba(255,255,255,.055)", borderRadius:8, padding:"8px 10px" }}>
+                          <div style={{ color:"#e8f0ff", fontSize:11, fontWeight:900, marginBottom:2 }}>{x.title}</div>
+                          <div style={{ color:"#94a3b8", fontSize:11, lineHeight:1.35 }}>{x.text}</div>
                         </div>
                       ))}
                     </div>
