@@ -1592,23 +1592,27 @@ export default function NBAPropsModel() {
   //   • EV%        — model edge over book line
   //   • CV         — coefficient of variation from L5 game log (volatility check)
   //   • po_gp      — playoff sample size (rookies / debuts get filtered)
-  //   • modelLift  — |projection - baseline| / baseline (catches "model is reaching")
+  //   • modelLift  — directional projection move vs baseline (catches unsupported reaching)
   //
   // Why modelLift instead of bookGap: a 30%+ disagreement with the book can mean
   // EITHER (a) book is mispriced — model just stamps the player's averages
   // correctly while the book sits below them (BET IT), OR (b) model is reaching —
   // adjustments pushed projection far above the player's own baseline (SKIP IT).
-  // modelLift distinguishes these: tiny lift = book is wrong; big lift = model is.
+  // modelLift distinguishes these: tiny lift = book is wrong; big lift can be model reach.
   const computeGrade = ({ evPct, cv, poGp, projection, baseline, q25 = null, q75 = null, line = null, monteCarlo = null, trustScore = null, injCascadeAdj = 0, driftDown = false }) => {
     const absEv     = Math.abs(evPct || 0);
-    const modelLift = baseline > 0 ? Math.abs(projection - baseline) / baseline : 0;
+    const liftSigned = baseline > 0 ? (projection - baseline) / baseline : 0;
+    const modelLift = Math.abs(liftSigned);
+    const isOver  = projection > (line || 0);
+    const liftAligned = line == null || line <= 0 || Math.abs(projection - line) < 0.01
+      ? true
+      : isOver ? liftSigned >= -0.01 : liftSigned <= 0.01;
     const trustOk   = trustScore != null ? trustScore >= 70 : (cv != null && cv < 0.30);
     const cvOk40    = cv != null && cv < 0.40;
     const cvKnown   = cv != null;
     const sampleOk  = (poGp || 0) >= 3;
-    const liftOk15  = modelLift < 0.15;
-    const liftOk20  = modelLift < 0.20;
-    const isOver  = projection > (line || 0);
+    const liftOk15  = liftAligned ? modelLift < 0.20 : modelLift < 0.10;
+    const liftOk20  = liftAligned ? modelLift < 0.25 : modelLift < 0.15;
     const mcProb  = isOver ? (monteCarlo?.prob_over ?? null) : (monteCarlo?.prob_under ?? null);
     const mcOk    = mcProb == null || mcProb >= 0.585;
     // Directional quantile safety: floor doesn't collapse (over) / ceiling stays compressed (under).
@@ -1617,9 +1621,10 @@ export default function NBAPropsModel() {
       : isOver
         ? (q25 == null || q25 >= line * 0.90)
         : (q75 == null || q75 <= line * 1.10);
+    const lockLiftOk = liftAligned ? modelLift < 0.20 : modelLift < 0.08;
     const order = ["LOCK", "ACTIONABLE", "WATCH", "SKIP"];
     let tier = "SKIP";
-    if (absEv > 10 && trustOk && sampleOk && quantileSafe && mcOk) tier = "LOCK";
+    if (absEv > 10 && trustOk && sampleOk && quantileSafe && mcOk && lockLiftOk) tier = "LOCK";
     else if (absEv > 7 && (cvOk40 || !cvKnown) && sampleOk && liftOk15 && mcOk) tier = "ACTIONABLE";
     else if (absEv > 4 && liftOk20) tier = "WATCH";
     // Systematic over-projection: model has missed high 3+ times in a row → drop one tier.
@@ -3093,12 +3098,14 @@ export default function NBAPropsModel() {
               {(() => {
                 const cb = serverCorr?.confidenceBand;
                 const baseline = serverCorr?.base ?? proj.blended;
-                const modelLift = baseline > 0 ? Math.abs(finalProj - baseline) / baseline : 0;
+                const liftSigned = baseline > 0 ? (finalProj - baseline) / baseline : 0;
+                const modelLift = Math.abs(liftSigned);
+                const liftSideText = liftSigned >= 0 ? "moved above baseline" : "moved below baseline";
                 const gradeReason =
                   confGrade === "LOCK"       ? `Strong edge (+${Math.abs(finalEvPct).toFixed(1)}%) — tight L5 variance, healthy sample, model close to baseline.` :
                   confGrade === "ACTIONABLE" ? `Solid edge (+${Math.abs(finalEvPct).toFixed(1)}%) with acceptable variance — good single-unit play.` :
-                  confGrade === "WATCH"      ? `Edge exists but ${cb && cb.cv >= 0.30 ? `L5 volatility high (CV ${cb.cv})` : modelLift >= 0.15 ? `model lifted ${(modelLift*100).toFixed(0)}% off baseline` : "trust signals mixed"} — small unit only.` :
-                  confGrade === "SKIP"       ? `Model trust insufficient — ${Math.abs(finalEvPct) < 4 ? "edge below 4%" : `model lifted ${(modelLift*100).toFixed(0)}% off baseline`}.` :
+                  confGrade === "WATCH"      ? `Edge exists but ${cb && cb.cv >= 0.30 ? `L5 volatility high (CV ${cb.cv})` : modelLift >= 0.15 ? `model ${liftSideText} by ${(modelLift*100).toFixed(0)}%` : "trust signals mixed"} — small unit only.` :
+                  confGrade === "SKIP"       ? `Model trust insufficient — ${Math.abs(finalEvPct) < 4 ? "edge below 4%" : `model ${liftSideText} by ${(modelLift*100).toFixed(0)}%`}.` :
                   "EV-based grade.";
                 return (
                   <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14, padding:"10px 16px", background:`${confGradeColor}0d`, border:`1px solid ${confGradeColor}44`, borderRadius:10, flexWrap:"wrap" }}>
@@ -3393,6 +3400,17 @@ export default function NBAPropsModel() {
                 const baseline = serverCorr?.base ?? proj.blended;
                 const modelLift = baseline > 0 ? Math.abs(finalProj - baseline) / baseline : 0;
                 const liftPct = (finalProj - baseline) / baseline * 100;
+                const liftAligned = finalVerdict === "over" ? liftPct >= -1 : finalVerdict === "under" ? liftPct <= 1 : true;
+                const liftDirection = liftPct >= 0 ? "above" : "below";
+                const liftContext = liftAligned
+                  ? `supports the ${finalVerdict.toUpperCase()} side`
+                  : `cuts against the ${finalVerdict.toUpperCase()} side`;
+                const liftTier = liftAligned
+                  ? (modelLift < 0.10 ? "LOCK" : modelLift < 0.20 ? "ACT" : modelLift < 0.25 ? "WATCH" : "FAIL")
+                  : (modelLift < 0.05 ? "ACT" : modelLift < 0.10 ? "WATCH" : "FAIL");
+                const liftReq = liftAligned
+                  ? "aligned: <25% max"
+                  : "against side: <10% max";
                 const bookGap = l > 0 ? Math.abs(finalProj - l) / l * 100 : 0;
                 const straddles = cb && l > 0 && cb.floor <= l && cb.ceiling >= l;
                 const trustLabel = !cb ? "n/a" : cb.trust_score >= 70 ? "HIGH" : cb.trust_score >= 40 ? "MODERATE" : "LOW";
@@ -3415,7 +3433,7 @@ export default function NBAPropsModel() {
                   { label: "EV Edge",       value: `${finalEvPct > 0 ? "+" : ""}${finalEvPct.toFixed(1)}%`, ok: Math.abs(finalEvPct) > 4, req: ">4%", tier: Math.abs(finalEvPct) > 10 ? "LOCK" : Math.abs(finalEvPct) > 7 ? "ACT" : Math.abs(finalEvPct) > 4 ? "WATCH" : "FAIL" },
                   { label: "L5 Variance (CV)", value: cb ? cb.cv.toFixed(3) : "n/a", ok: cb && cb.cv < 0.40, req: "<0.40 (ACT) · <0.30 (LOCK)", tier: cb ? (cb.cv < 0.30 ? "LOCK" : cb.cv < 0.40 ? "ACT" : "WATCH") : "—" },
                   { label: "Sample Size",   value: `${dq.po_gp || 0} PO games`, ok: (dq.po_gp || 0) >= 3, req: "≥3", tier: (dq.po_gp || 0) >= 3 ? "LOCK" : "FAIL" },
-                  { label: "Model Lift",    value: `${liftPct >= 0 ? "+" : ""}${liftPct.toFixed(1)}%`, ok: modelLift < 0.20, req: "<20% (WATCH) · <15% (ACT) · <10% (LOCK)", tier: modelLift < 0.10 ? "LOCK" : modelLift < 0.15 ? "ACT" : modelLift < 0.20 ? "WATCH" : "FAIL" },
+                  { label: "Baseline Move", value: `${liftPct >= 0 ? "+" : ""}${liftPct.toFixed(1)}%`, ok: liftTier !== "FAIL", req: liftReq, tier: liftTier },
                 ];
 
                 return (
@@ -3508,8 +3526,9 @@ export default function NBAPropsModel() {
                         </tbody>
                       </table>
                       <p style={{ margin: "12px 0 0 0", fontSize: 11.5, color: "#94a3b8" }}>
-                        Final tier = <strong style={{ color: confGradeColor }}>{confGrade}</strong> (lowest passing tier across all filters; SKIP if any blocks WATCH).
+                        Final tier = <strong style={{ color: confGradeColor }}>{confGrade}</strong> (edge, variance, sample, probability, quantile safety, and baseline move).
                         {bookGap > 0 && <> Book disagreement: <strong>{bookGap.toFixed(1)}%</strong>.</>}
+                        <> Baseline move: <strong>{Math.abs(liftPct).toFixed(1)}% {liftDirection}</strong> baseline; it {liftContext}.</>
                       </p>
                     </Section>
 
@@ -3518,7 +3537,7 @@ export default function NBAPropsModel() {
                       <div style={{ padding: "14px 18px", background: `${confGradeColor}10`, border: `1px solid ${confGradeColor}55`, borderRadius: 8 }}>
                         {confGrade === "LOCK" && (
                           <p style={{ margin: 0, fontSize: 13, color: "#e8f0ff" }}>
-                            🔒 <strong>Bet hard.</strong> Strong edge ({finalEvPct > 0 ? "+" : ""}{finalEvPct}%), tight L5 variance (CV {cb?.cv?.toFixed(3) || "n/a"}), and the model is barely lifting off baseline (no overreach). This is the kind of play that drives long-term EV.
+                            🔒 <strong>Bet hard.</strong> Strong edge ({finalEvPct > 0 ? "+" : ""}{finalEvPct}%), tight L5 variance (CV {cb?.cv?.toFixed(3) || "n/a"}), and the baseline move is controlled. This is the kind of play that drives long-term EV.
                           </p>
                         )}
                         {confGrade === "ACTIONABLE" && (
@@ -3528,12 +3547,12 @@ export default function NBAPropsModel() {
                         )}
                         {confGrade === "WATCH" && (
                           <p style={{ margin: 0, fontSize: 13, color: "#e8f0ff" }}>
-                            👀 <strong>Small unit or skip.</strong> Edge exists but trust signals are weak ({cb && cb.cv >= 0.40 ? `high CV ${cb.cv.toFixed(3)}` : modelLift >= 0.15 ? `lift ${(modelLift*100).toFixed(0)}% above baseline` : "mixed signals"}). Use as a flex pick or pass on it.
+                            👀 <strong>Small unit or skip.</strong> Edge exists but trust signals are weak ({cb && cb.cv >= 0.40 ? `high CV ${cb.cv.toFixed(3)}` : modelLift >= 0.15 ? `projection moved ${Math.abs(liftPct).toFixed(0)}% ${liftDirection} baseline` : "mixed signals"}). Use as a flex pick or pass on it.
                           </p>
                         )}
                         {confGrade === "SKIP" && (
                           <p style={{ margin: 0, fontSize: 13, color: "#e8f0ff" }}>
-                            ⛔ <strong>Don't bet.</strong> {Math.abs(finalEvPct) < 4 ? `Edge is too thin (${finalEvPct > 0 ? "+" : ""}${finalEvPct}%) — projection sits effectively on the line.` : modelLift >= 0.20 ? `Model lifted ${(modelLift*100).toFixed(0)}% above baseline — projection is reaching past the player's actual averages.` : "Filters blocked all higher tiers."}
+                            ⛔ <strong>Don't bet.</strong> {Math.abs(finalEvPct) < 4 ? `Edge is too thin (${finalEvPct > 0 ? "+" : ""}${finalEvPct}%) — projection sits effectively on the line.` : liftTier === "FAIL" ? `Projection moved ${Math.abs(liftPct).toFixed(0)}% ${liftDirection} baseline and ${liftAligned ? "needs stronger supporting context" : "cuts against the recommended side"}.` : "Filters blocked all higher tiers."}
                           </p>
                         )}
                       </div>
