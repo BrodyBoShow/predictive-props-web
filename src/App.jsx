@@ -1653,9 +1653,33 @@ export default function NBAPropsModel() {
     const playerScoring  = scoringBreakdown?.[pkey] ?? null;
     const playerClutch   = clutchStats?.[pkey]      ?? null;
     const playerTracking = trackingStats?.[pkey]    ?? null;
+    let runRecentStats = recentStats;
+    let runVsOpponentStats = vsOpponentStats;
+
+    if (nbaApiStatus === "live" && player.pid && (!runRecentStats || !runRecentStats._gameLog?.length)) {
+      try {
+        const [recentData, vsData] = await Promise.all([
+          fetch(`${API_BASE}/recent/${player.pid}`).then(r => r.json()).catch(() => null),
+          fetch(`${API_BASE}/vs-opponent/${player.pid}/${ot}`).then(r => r.json()).catch(() => null),
+        ]);
+        if (recentData?.success && recentData.recent) {
+          runRecentStats = {
+            ...recentData.recent,
+            _gp: recentData.gp,
+            _gameLog: recentData.gameLog || [],
+            _gameLogFull: recentData.gameLogFull || [],
+          };
+          setRecentStats(runRecentStats);
+        }
+        if (vsData?.success && vsData.vsOpponent) {
+          runVsOpponentStats = { ...vsData.vsOpponent, gp: vsData.gp, source: vsData.source };
+          setVsOpponentStats(runVsOpponentStats);
+        }
+      } catch {}
+    }
 
     // ── Phase A: client-side projection (instant, no network) ─────────────
-    const proj = computeProjection(prop, player, pt, ot, isHome, restDays, effectiveTeamData, recentStats, vsOpponentStats, playerSplits, teamDefense, playerScoring, playerClutch, injuryContext.adj, playerTracking, matchupDelta);
+    const proj = computeProjection(prop, player, pt, ot, isHome, restDays, effectiveTeamData, runRecentStats, runVsOpponentStats, playerSplits, teamDefense, playerScoring, playerClutch, injuryContext.adj, playerTracking, matchupDelta);
     const edge    = +(proj.adjustedProjection - l).toFixed(2);
     const verdict = Math.abs(edge) < 0.3 ? "push" : edge > 0 ? "over" : "under";
     const evPct   = l > 0 ? +((proj.adjustedProjection - l) / l * 100).toFixed(2) : 0;
@@ -1706,13 +1730,13 @@ export default function NBAPropsModel() {
             game_date:      game?.date || null,
             rest_days:      typeof restDays === "number" ? restDays : null,
             l5_avg:         proj.propRecent ?? null,           // client-computed L5 PO avg
-            l5_min:         recentStats?.min ?? null,          // client-computed L5 PO minutes/game
-            l5_stat_values: extractL5StatValues(recentStats?._gameLog, prop.id),  // for variance band
+            l5_min:         runRecentStats?.min ?? null,          // client-computed L5 PO minutes/game
+            l5_stat_values: extractL5StatValues(runRecentStats?._gameLog, prop.id),  // for variance band
             high_leverage:  /game\s*7|elimination|finals/i.test(game?.title || ""),
             // ── Residual calibration — historical projection/actual pairs from localStorage ──
             prior_residuals: getResiduals(player.key, prop.id),
             // ── KNN Monte Carlo — full game log for contextual neighbor selection ──
-            game_log_context: recentStats?._gameLogFull || recentStats?._gameLog || [],
+            game_log_context: runRecentStats?._gameLogFull || runRecentStats?._gameLog || [],
             // ── Current game context for bucket-aware Adj 14 (server matches similar samples) ──
             current_ctx: buildResidualCtx({
               isHome, gameTitle: game?.title, restDays,
