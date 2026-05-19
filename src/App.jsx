@@ -281,22 +281,44 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
 
 
 // ── BetCard — bulk winning props board ────────────────────────────────────────
-const GRADE_COLOR = { LOCK:"#a855f7", ACTIONABLE:"#3b82f6", WATCH:"#f59e0b", SKIP:"#475569" };
+const TIER_META = {
+  LOCK:       { label:"BEST BET", short:"BEST", color:"#a855f7", help:"Strong edge with clean support" },
+  ACTIONABLE: { label:"PLAY",     short:"PLAY", color:"#3b82f6", help:"Bettable edge" },
+  WATCH:      { label:"LEAN",     short:"LEAN", color:"#f59e0b", help:"Edge exists, but one filter is weak" },
+  SKIP:       { label:"PASS",     short:"PASS", color:"#475569", help:"Not enough edge or too much model risk" },
+};
+const GRADE_COLOR = Object.fromEntries(Object.entries(TIER_META).map(([k, v]) => [k, v.color]));
+
+const edgeTagsFor = (r) => {
+  const tags = [];
+  const absEv = Math.abs(Number(r.ev || 0));
+  const trust = r.band?.trust_score ?? r.trustScore ?? null;
+  if (absEv >= 15) tags.push({ label:"BIG EDGE", tone:"#10b981" });
+  else if (absEv >= 8) tags.push({ label:"EDGE", tone:"#10b981" });
+  else if (absEv >= 4) tags.push({ label:"THIN EDGE", tone:"#f59e0b" });
+  if (trust != null && trust >= 70) tags.push({ label:"STABLE", tone:"#10b981" });
+  else if (r.cv != null && r.cv >= 0.45) tags.push({ label:"VOLATILE", tone:"#f59e0b" });
+  if (r.modelLift != null && r.modelLift < 0.10) tags.push({ label:"MODEL OK", tone:"#38bdf8" });
+  else if (r.modelLift != null && r.modelLift >= 0.20) tags.push({ label:"MODEL REACH", tone:"#f59e0b" });
+  if (r.mcSideProb != null && r.mcSideProb >= 0.60) tags.push({ label:"SIM OK", tone:"#10b981" });
+  if (r.driftDown) tags.push({ label:"DRIFT", tone:"#f59e0b" });
+  return tags.slice(0, 4);
+};
 
 const BetCard = ({ r, propLabels, onOpen }) => {
   const isOver  = r.lean === "OVER";
   const ac      = isOver ? "#10b981" : "#ef4444";
-  const gc      = GRADE_COLOR[r.grade] || "#475569";
+  const tier    = TIER_META[r.grade] || TIER_META.SKIP;
+  const gc      = tier.color;
   const fmt     = n => n.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-  const trust   = r.band?.trust_score ?? null;
-  const trustC  = trust != null ? (trust >= 70 ? "#10b981" : trust >= 40 ? "#f59e0b" : "#ef4444") : null;
   const delta   = r.proj - r.line;
+  const tags    = edgeTagsFor(r);
 
   return (
     <div className="bet-card" style={{ borderColor:`${gc}40` }} onClick={onOpen}>
       <div className="bet-card-stripe" style={{ background:`linear-gradient(90deg,${gc},${gc}55)` }} />
       <div className="bet-card-head">
-        <span className="bet-card-grade" style={{ color:gc }}>{r.grade}</span>
+        <span className="bet-card-grade" style={{ color:gc }} title={tier.help}>{tier.label}</span>
         <span className="bet-card-player">{fmt(r.name)}</span>
         <span className="bet-card-sub">
           {r.team} · {propLabels[r.propId]}
@@ -324,8 +346,12 @@ const BetCard = ({ r, propLabels, onOpen }) => {
         </div>
       </div>
       <div className="bet-card-foot">
-        {trust != null && <span className="bet-card-tscore" style={{ color:trustC }}>T{trust}</span>}
-        {r.qKelly > 0  && <span className="bet-card-kelly">¼K {r.qKelly}%</span>}
+        {tags.map((t, i) => (
+          <span key={`${t.label}-${i}`} style={{ fontSize:9, color:t.tone, background:`${t.tone}14`,
+            border:`1px solid ${t.tone}33`, borderRadius:3, padding:"1px 5px", letterSpacing:".04em" }}>
+            {t.label}
+          </span>
+        ))}
         {r.corrStack && (
           <span style={{ fontSize:9, fontWeight:800, color:"#10b981", background:"rgba(16,185,129,.12)",
             border:"1px solid rgba(16,185,129,.3)", borderRadius:3, padding:"1px 5px", letterSpacing:".06em" }}
@@ -2119,7 +2145,7 @@ export default function NBAPropsModel() {
                   )}
                   {!bulkRunning && bulkProjResults.length > 0 && (
                     <span style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, color:"#475569" }}>
-                      {bulkProjResults.length} results · {bulkProjResults.filter(r => r.grade === "LOCK").length} LOCK · {bulkProjResults.filter(r => r.grade === "ACTIONABLE").length} ACT
+                      {bulkProjResults.length} results · {bulkProjResults.filter(r => r.grade === "LOCK").length} BEST · {bulkProjResults.filter(r => r.grade === "ACTIONABLE").length} PLAY
                     </span>
                   )}
                   {bulkProjResults.length > 0 && (
@@ -2272,18 +2298,25 @@ export default function NBAPropsModel() {
                           <div style={{ padding:"14px 16px 12px" }}>
                             <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
                               <span style={{ fontSize:9, fontWeight:800, letterSpacing:".22em", color:"#475569", fontFamily:"'Azeret Mono',monospace" }}>
-                                BEST BETS
+                                BETTING BOARD
                               </span>
                               {locks.length > 0 && (
                                 <span style={{ fontSize:9, fontWeight:700, color:"#a855f7", fontFamily:"'Azeret Mono',monospace" }}>
-                                  ● {locks.length} LOCK
+                                  ● {locks.length} BEST BET
                                 </span>
                               )}
                               {acts.length > 0 && (
                                 <span style={{ fontSize:9, fontWeight:700, color:"#3b82f6", fontFamily:"'Azeret Mono',monospace" }}>
-                                  ● {acts.length} ACTIONABLE
+                                  ● {acts.length} PLAY
                                 </span>
                               )}
+                            </div>
+                            <div style={{ display:"flex", gap:8, flexWrap:"wrap", margin:"-4px 0 12px",
+                              fontFamily:"'Azeret Mono',monospace", fontSize:9, color:"#64748b" }}>
+                              <span><b style={{ color:"#a855f7" }}>BEST BET</b> strong edge + clean support</span>
+                              <span><b style={{ color:"#3b82f6" }}>PLAY</b> bettable edge</span>
+                              <span><b style={{ color:"#f59e0b" }}>LEAN</b> edge with a weak filter</span>
+                              <span><b style={{ color:"#64748b" }}>PASS</b> no play</span>
                             </div>
                             <div className="bet-cards-grid">
                               {best.map((r, i) => (
@@ -2299,7 +2332,7 @@ export default function NBAPropsModel() {
                           <div style={{ padding:"4px 16px 10px", borderTop:"1px solid rgba(245,158,11,.08)" }}>
                             <div style={{ padding:"8px 0 5px", fontSize:9, fontWeight:800, letterSpacing:".18em",
                               color:"#f59e0b", fontFamily:"'Azeret Mono',monospace" }}>
-                              WATCH — {watch.length}
+                              LEANS — {watch.length}
                             </div>
                             {watch.map((r, i) => {
                               const isOver = r.lean === "OVER";
@@ -2324,11 +2357,11 @@ export default function NBAPropsModel() {
                                   <span style={{ color:"#f59e0b", fontSize:10, fontWeight:700 }}>
                                     EV {r.ev >= 0 ? "+" : ""}{r.ev}%
                                   </span>
-                                  {r.band?.trust_score != null && (
-                                    <span style={{ color: r.band.trust_score >= 70 ? "#10b981" : "#f59e0b", fontSize:9, marginLeft:10 }}>
-                                      T{r.band.trust_score}
+                                  {edgeTagsFor(r).slice(0, 2).map((t, ti) => (
+                                    <span key={ti} style={{ color:t.tone, fontSize:9, marginLeft:10 }}>
+                                      {t.label}
                                     </span>
-                                  )}
+                                  ))}
                                 </div>
                               );
                             })}
@@ -2340,7 +2373,7 @@ export default function NBAPropsModel() {
                           <div style={{ padding:"4px 16px 8px", borderTop:"1px solid rgba(71,85,105,.1)" }}>
                             <div style={{ padding:"8px 0 5px", fontSize:9, fontWeight:800, letterSpacing:".18em",
                               color:"#475569", fontFamily:"'Azeret Mono',monospace" }}>
-                              SKIP — {skip.length}
+                              PASS — {skip.length}
                             </div>
                             {skip.map((r, i) => {
                               const isOver = r.lean === "OVER";
