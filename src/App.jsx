@@ -697,11 +697,18 @@ export default function NBAPropsModel() {
         const normalized = {};
         for (const [name, info] of Object.entries(data.injuries || {})) {
           const s = (info.status || "").toLowerCase();
+          const d = (info.detail || "").toLowerCase();
+          const hardOut = /ruled out|will not play|won't play|not play|out for|out indefinitely|inactive|not active/.test(d);
+          const probable = /probable|expected to play|will play|available|fully practiced|full practice/.test(d);
+          const questionable = /questionable|game-time decision|day-to-day|day to day|gtd/.test(d);
           normalized[name] = {
             ...info,
-            status: s.includes("out") || s === "out" ? "OUT"
-                  : s.includes("questionable") || s.includes("gtd") ? "GTD"
+            status: hardOut ? "OUT"
+                  : probable ? "PROB"
+                  : questionable ? "GTD"
                   : s.includes("probable") ? "PROB"
+                  : s.includes("questionable") || s.includes("gtd") || s.includes("day-to-day") ? "GTD"
+                  : s.includes("out") || s === "out" ? "OUT"
                   : info.status,
           };
         }
