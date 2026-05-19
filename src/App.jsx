@@ -2586,6 +2586,18 @@ export default function NBAPropsModel() {
               </div>
             </div>
           );
+          const decisionLabel =
+            confGrade === "LOCK" ? "BEST BET" :
+            confGrade === "ACTIONABLE" ? "PLAY" :
+            confGrade === "WATCH" ? "LEAN" :
+            "PASS";
+          const decisionCopy =
+            confGrade === "LOCK" ? "Strong enough to lead the card." :
+            confGrade === "ACTIONABLE" ? "Good enough for a standard play." :
+            confGrade === "WATCH" ? "There is an edge, but it needs restraint." :
+            lineInBand ? "Lean exists, but the line lives inside the normal range." :
+            Math.abs(finalEvPct) < 7 ? "Projection clears the line, but the edge is thin." :
+            "The model does not have enough clean support.";
           return (
             <div className="rp" data-grade={confGrade}>
               {/* ── HERO — slot-machine reveal ───────────────────────── */}
@@ -2632,9 +2644,12 @@ export default function NBAPropsModel() {
                         </div>
                       </div>
                       <div style={{ height:1, background:"rgba(255,255,255,.08)", margin:"14px 0 12px" }} />
-                      <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                        <div style={{ background:`${finalEc}1e`, border:`1px solid ${finalEc}`, borderRadius:8, padding:"7px 12px", color:finalEc, fontWeight:900, fontSize:16, fontFamily:"'Azeret Mono',monospace", letterSpacing:".08em" }}>{finalVerdict.toUpperCase()}</div>
-                        <div style={{ color:finalEc, fontFamily:"'Azeret Mono',monospace", fontSize:13, fontWeight:800 }}>{finalEdge > 0 ? "+" : ""}{finalEdge} vs line</div>
+                      <div style={{ display:"grid", gap:7 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                          <div style={{ background:`${confGradeColor}1e`, border:`1px solid ${confGradeColor}`, borderRadius:8, padding:"7px 12px", color:confGradeColor, fontWeight:900, fontSize:16, fontFamily:"'Azeret Mono',monospace", letterSpacing:".08em" }}>{decisionLabel}</div>
+                          <div style={{ color:finalEc, fontFamily:"'Azeret Mono',monospace", fontSize:13, fontWeight:800 }}>{finalVerdict.toUpperCase()} lean · {finalEdge > 0 ? "+" : ""}{finalEdge}</div>
+                        </div>
+                        <div style={{ color:"#94a3b8", fontSize:12, lineHeight:1.35 }}>{decisionCopy}</div>
                       </div>
                     </div>
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:14 }}>
@@ -2656,12 +2671,12 @@ export default function NBAPropsModel() {
                         <div style={{ color:"#e8f0ff", fontSize:16, fontWeight:900, marginTop:4 }}>{pt} vs {ot}</div>
                       </div>
                       <div className="grade-badge-hero" style={{ background:`${confGradeColor}18`, border:`1px solid ${confGradeColor}`, borderRadius:10, padding:"9px 12px", textAlign:"center", minWidth:86 }}>
-                        <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:8, letterSpacing:".2em", color:confGradeColor, marginBottom:4, opacity:.75 }}>GRADE</div>
-                        <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:17, fontWeight:900, color:confGradeColor, lineHeight:1 }}>{confGrade}</div>
+                        <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:8, letterSpacing:".2em", color:confGradeColor, marginBottom:4, opacity:.75 }}>VERDICT</div>
+                        <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:17, fontWeight:900, color:confGradeColor, lineHeight:1 }}>{decisionLabel}</div>
                       </div>
                     </div>
                     <div style={{ fontSize:13, color:"#c8d4e8", lineHeight:1.55, marginBottom:14 }}>
-                      {dname} projects <strong style={{ color:finalEc }}>{finalVerdict.toUpperCase()}</strong> the {l} line by <strong>{Math.abs(finalEdge)} {pr.label3}</strong>. The model moved {Math.abs(baselineMovePct).toFixed(1)}% {baselineMovePct >= 0 ? "above" : "below"} baseline, and that move {moveSupportsSide ? "supports" : "conflicts with"} the side.
+                      {decisionCopy} {dname} projects <strong style={{ color:finalEc }}>{finalVerdict.toUpperCase()}</strong> the {l} line by <strong>{Math.abs(finalEdge)} {pr.label3}</strong>.
                     </div>
                     <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
                       {[
@@ -2675,8 +2690,8 @@ export default function NBAPropsModel() {
                         </div>
                       ))}
                     </div>
-                    <button type="button" onClick={() => setShowAnalysis(true)} style={{ marginTop:12, width:"100%", border:"1px solid rgba(99,102,241,.35)", background:"rgba(99,102,241,.09)", color:"#818cf8", borderRadius:8, padding:"8px 10px", cursor:"pointer", fontFamily:"'Azeret Mono',monospace", fontSize:10, fontWeight:800, letterSpacing:".12em" }}>
-                      MORE DATA
+                    <button type="button" onClick={() => setShowAnalysis(v => !v)} style={{ marginTop:12, width:"100%", border:"1px solid rgba(99,102,241,.35)", background:"rgba(99,102,241,.09)", color:"#818cf8", borderRadius:8, padding:"8px 10px", cursor:"pointer", fontFamily:"'Azeret Mono',monospace", fontSize:10, fontWeight:800, letterSpacing:".12em" }}>
+                      {showAnalysis ? "HIDE DATA" : "MORE DATA"}
                     </button>
                   </div>
 
@@ -2724,7 +2739,7 @@ export default function NBAPropsModel() {
                 </div>
 
                 {/* Quick stat pills */}
-                <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:14 }}>
+                <div style={{ display: showAnalysis ? "flex" : "none", gap:8, flexWrap:"wrap", marginBottom:14 }}>
                   {[
                     { label:"BOOK LINE", val: l || "—",               color:"#94a3b8" },
                     { label:"PO AVG",    val: proj.propPO ?? "—",     color:"#60a5fa" },
@@ -2763,7 +2778,7 @@ export default function NBAPropsModel() {
                   })()}
                 </div>
 
-                <div style={{ background:"rgba(15,23,42,.36)", border:"1px solid rgba(255,255,255,.07)", borderRadius:10, padding:"10px 12px", marginBottom:14 }}>
+                <div style={{ display: showAnalysis ? "block" : "none", background:"rgba(15,23,42,.36)", border:"1px solid rgba(255,255,255,.07)", borderRadius:10, padding:"10px 12px", marginBottom:14 }}>
                   <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, letterSpacing:".18em", color:"#64748b", fontWeight:800, marginBottom:9 }}>CALIBRATION PATH</div>
                   <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))", gap:8 }}>
                     {[
@@ -2781,7 +2796,7 @@ export default function NBAPropsModel() {
                 </div>
 
                 {/* Confidence band visual */}
-                {serverCorr?.confidenceBand && (() => {
+                {showAnalysis && serverCorr?.confidenceBand && (() => {
                   const cb = serverCorr.confidenceBand;
                   return (
                     <ConfidenceMeter
@@ -2799,7 +2814,7 @@ export default function NBAPropsModel() {
               </div>
 
               {/* ── Record Actual — log real outcome to calibrate future projections ── */}
-              {(() => {
+              {showAnalysis && (() => {
                 const residuals = getResiduals(player.key, pr.id);
                 const n = residuals.length;
                 return (
@@ -2873,7 +2888,7 @@ export default function NBAPropsModel() {
               })()}
 
               {/* ── Fetched box score preview ──────────────────────────────────── */}
-              {fetchedBox && (() => {
+              {showAnalysis && fetchedBox && (() => {
                 const b = fetchedBox;
                 const fgStr = b.fga > 0 ? `${b.fgm}/${b.fga} (${b.fg_pct}%)` : "—";
                 const fg3Str = b.fg3a > 0 ? `${b.fg3m}/${b.fg3a} (${b.fg3_pct}%)` : "—";
@@ -2909,7 +2924,7 @@ export default function NBAPropsModel() {
               })()}
 
               {/* ── Residuals Manager — view, dedupe, clear logged outcomes ── */}
-              {(() => {
+              {showAnalysis && (() => {
                 const residuals = getResiduals(player.key, pr.id);
                 if (residuals.length === 0) return null;
                 return (
@@ -3035,14 +3050,14 @@ export default function NBAPropsModel() {
                 );
               })()}
 
-              {inj && <div className={`injb ${inj.status === "GTD" || inj.status === "PROB" ? "gtd" : ""}`}>
+              {showAnalysis && inj && <div className={`injb ${inj.status === "GTD" || inj.status === "PROB" ? "gtd" : ""}`}>
                 {inj.status === "PROB" ? "📋" : "⚠"} {dname} — {inj.status}: {inj.detail}
                 <span style={{ marginLeft: 8, opacity: 0.7, fontSize: 8 }}>{inj.isLive ? "● LIVE REPORT" : "◎ STATIC"}</span>
               </div>}
 
 
               {/* ── Stat baseline cards (always visible) ── */}
-              <div className="sr">
+              <div className="sr" style={{ display: showAnalysis ? undefined : "none" }}>
                 <div className="sb"><div className="sbl">RS AVG · {proj.propRecent !== null ? "25%" : "40%"} wt</div><div className="sbv">{proj.propRS}</div><div className="sbs">{player.rs.gp}g · {pr.label3}</div></div>
                 <div className="sb"><div className="sbl">PO AVG · {proj.propRecent !== null ? "40%" : "60%"} wt</div><div className="sbv">{proj.propPO}</div><div className="sbs">{player.po.gp}g · {pr.label3}</div></div>
                 {proj.propRecent !== null && <div className="sb"><div className="sbl">L5 AVG · 35% wt</div><div className="sbv" style={{color:"#f59e0b"}}>{proj.propRecent}</div><div className="sbs">Last 5 PO games</div></div>}
@@ -3051,7 +3066,7 @@ export default function NBAPropsModel() {
               </div>
 
               {/* ── L5 GAME-BY-GAME BAR CHART ── */}
-              {(() => {
+              {showAnalysis && (() => {
                 const gameLog = recentStats?._gameLog;
                 if (!gameLog || gameLog.length === 0) return null;
                 const rawVals = extractL5StatValues(gameLog, pr.id);
@@ -3128,10 +3143,10 @@ export default function NBAPropsModel() {
               })()}
 
               {/* Edge bar */}
-              <div className="et" style={{ marginBottom: 14 }}><div className="ef" style={{ width:`${finalEpct*100}%`, background:finalEc }} /></div>
+              {showAnalysis && <div className="et" style={{ marginBottom: 14 }}><div className="ef" style={{ width:`${finalEpct*100}%`, background:finalEc }} /></div>}
 
               {/* ── MONTE CARLO — 10K bootstrap simulations from L5 distribution ── */}
-              {(() => {
+              {showAnalysis && (() => {
                 const mc = serverCorr?.monteCarlo;
                 if (!mc) return null;
                 const pOver  = mc.prob_over;
@@ -3447,7 +3462,7 @@ export default function NBAPropsModel() {
                 }
 
                 return (
-                  <div style={{ marginBottom: 12, padding: "18px 20px", background: `${confGradeColor}07`, border: `1px solid ${confGradeColor}28`, borderRadius: 12 }}>
+                  <div style={{ display: showAnalysis ? "block" : "none", marginBottom: 12, padding: "18px 20px", background: `${confGradeColor}07`, border: `1px solid ${confGradeColor}28`, borderRadius: 12 }}>
                     {/* Header */}
                     <div style={{ fontFamily: "'Azeret Mono',monospace", fontSize: 9, color: confGradeColor, letterSpacing: ".14em", marginBottom: 14, fontWeight: 700, opacity: 0.8 }}>
                       ◆ ANALYST BREAKDOWN
