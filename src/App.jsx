@@ -2642,17 +2642,17 @@ export default function NBAPropsModel() {
               text: `${injuryContext.outPlayers.slice(0, 3).map(x => dn(x.name)).join(", ")} OUT creates ${injuryContext.boostPPG} projected scoring load to redistribute.`,
             });
           }
-          const visibleMatchupNotes = matchupNotes.slice(0, 4);
-          const visiblePros = signalPros.slice(0, 4);
-          const visibleCons = signalCons.slice(0, 4);
+          const visibleMatchupNotes = matchupNotes.slice(0, 3);
+          const visiblePros = signalPros.slice(0, 2);
+          const visibleCons = signalCons.slice(0, 2);
           const AnalystList = ({ title, items, tone }) => (
-            <div style={{ background:"rgba(15,23,42,.52)", border:`1px solid ${tone}33`, borderRadius:10, padding:"12px 14px", minHeight:132 }}>
-              <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, letterSpacing:".18em", color:tone, fontWeight:800, marginBottom:10 }}>{title}</div>
-              <div style={{ display:"grid", gap:8 }}>
+            <div style={{ background:"rgba(15,23,42,.52)", border:`1px solid ${tone}33`, borderRadius:10, padding:"10px 12px" }}>
+              <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:8, letterSpacing:".18em", color:tone, fontWeight:800, marginBottom:8 }}>{title}</div>
+              <div style={{ display:"grid", gap:6 }}>
                 {(items.length ? items : [{ title:"Neutral", text:"No strong signal fired here." }]).map((x, i) => (
                   <div key={`${title}-${i}`} style={{ display:"grid", gap:2 }}>
-                    <div style={{ fontSize:11, color:"#e8f0ff", fontWeight:800 }}>{x.title}</div>
-                    <div style={{ fontSize:11, color:"#94a3b8", lineHeight:1.35 }}>{x.text}</div>
+                    <div style={{ fontSize:10, color:"#e8f0ff", fontWeight:800 }}>{x.title}</div>
+                    <div style={{ fontSize:10, color:"#94a3b8", lineHeight:1.3 }}>{x.text}</div>
                   </div>
                 ))}
               </div>
@@ -2704,12 +2704,12 @@ export default function NBAPropsModel() {
                 </div>
 
                 {/* Big number + grade — the slot machine moment */}
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:12, alignItems:"stretch", marginBottom:14 }}>
-                  <div style={{ background:`linear-gradient(160deg, ${confGradeColor}18, rgba(15,23,42,.68))`, border:`1px solid ${confGradeColor}44`, borderRadius:12, padding:"16px 16px", display:"grid", alignContent:"space-between", minHeight:210, overflow:"hidden" }}>
+                <div style={{ display:"grid", gridTemplateColumns:"minmax(230px,.78fr) minmax(390px,1.55fr)", gap:12, alignItems:"start", marginBottom:14 }}>
+                  <div style={{ background:`linear-gradient(160deg, ${confGradeColor}18, rgba(15,23,42,.68))`, border:`1px solid ${confGradeColor}44`, borderRadius:12, padding:"14px 16px", overflow:"hidden" }}>
                     <div>
                       <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, letterSpacing:".2em", color:"#64748b", fontWeight:800, marginBottom:10 }}>PROJECTION</div>
                       <div style={{ display:"grid", gap:4 }}>
-                        <div className="proj-hero-num" style={{ fontSize:58, fontWeight:900, fontFamily:"'Azeret Mono',monospace", color:"#e8f0ff", lineHeight:.95, letterSpacing:0 }}>{finalProj}</div>
+                        <div className="proj-hero-num" style={{ fontSize:52, fontWeight:900, fontFamily:"'Azeret Mono',monospace", color:"#e8f0ff", lineHeight:.95, letterSpacing:0 }}>{finalProj}</div>
                         <div>
                           <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:18, color:"#3b82f6", fontWeight:800, lineHeight:1 }}>{pr.label3}</div>
                           <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, color:"#475569", letterSpacing:".12em", marginTop:4 }}>{serverCorr ? "SERVER MODEL" : "CLIENT MODEL"}</div>
@@ -2724,7 +2724,7 @@ export default function NBAPropsModel() {
                         <div style={{ color:"#94a3b8", fontSize:12, lineHeight:1.35 }}>{decisionCopy}</div>
                       </div>
                     </div>
-                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:14 }}>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:12 }}>
                       <div>
                         <div style={{ fontFamily:"'Azeret Mono',monospace", color:"#64748b", fontSize:9, letterSpacing:".14em" }}>BOOK</div>
                         <div style={{ color:"#e8f0ff", fontSize:18, fontWeight:800 }}>{l || "—"}</div>
@@ -2736,7 +2736,7 @@ export default function NBAPropsModel() {
                     </div>
                   </div>
 
-                  <div style={{ background:"rgba(15,23,42,.46)", border:"1px solid rgba(255,255,255,.08)", borderRadius:12, padding:14, minHeight:210 }}>
+                  <div style={{ background:"rgba(15,23,42,.46)", border:"1px solid rgba(255,255,255,.08)", borderRadius:12, padding:14 }}>
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:12 }}>
                       <div>
                         <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, letterSpacing:".2em", color:"#64748b", fontWeight:800 }}>MATCHUP READ</div>
@@ -2747,10 +2747,10 @@ export default function NBAPropsModel() {
                         <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:17, fontWeight:900, color:confGradeColor, lineHeight:1 }}>{decisionLabel}</div>
                       </div>
                     </div>
-                    <div style={{ fontSize:13, color:"#c8d4e8", lineHeight:1.5, marginBottom:12 }}>
+                    <div style={{ fontSize:12, color:"#c8d4e8", lineHeight:1.45, marginBottom:10 }}>
                       {decisionCopy} {dname} projects <strong style={{ color:finalEc }}>{finalVerdict.toUpperCase()}</strong> by <strong>{Math.abs(finalEdge)} {pr.label3}</strong>, but the matchup read decides whether that lean is actually playable.
                     </div>
-                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(72px,1fr))", gap:7, marginBottom:12 }}>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(4,minmax(72px,1fr))", gap:7, marginBottom:10 }}>
                       {matchupChips.map(x => (
                         <div key={x.k} style={{ background:"rgba(255,255,255,.035)", border:"1px solid rgba(255,255,255,.07)", borderRadius:8, padding:"7px 8px" }}>
                           <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:8, color:"#64748b", letterSpacing:".12em" }}>{x.k}</div>
@@ -2758,7 +2758,7 @@ export default function NBAPropsModel() {
                         </div>
                       ))}
                     </div>
-                    <div style={{ display:"grid", gap:8 }}>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:8 }}>
                       {(visibleMatchupNotes.length ? visibleMatchupNotes : [{ title:"Context", text:"No strong matchup-specific signal fired; projection leans more on baseline and line value." }]).map((x, i) => (
                         <div key={i} style={{ background:"rgba(0,0,0,.14)", border:"1px solid rgba(255,255,255,.055)", borderRadius:8, padding:"8px 10px" }}>
                           <div style={{ color:"#e8f0ff", fontSize:11, fontWeight:900, marginBottom:2 }}>{x.title}</div>
@@ -2766,12 +2766,16 @@ export default function NBAPropsModel() {
                         </div>
                       ))}
                     </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:10 }}>
+                      <AnalystList title="PROS" items={visiblePros} tone="#10b981" />
+                      <AnalystList title="CONS" items={visibleCons} tone="#ef4444" />
+                    </div>
                     <button type="button" onClick={() => setShowAnalysis(v => !v)} style={{ marginTop:12, width:"100%", border:"1px solid rgba(99,102,241,.35)", background:"rgba(99,102,241,.09)", color:"#818cf8", borderRadius:8, padding:"8px 10px", cursor:"pointer", fontFamily:"'Azeret Mono',monospace", fontSize:10, fontWeight:800, letterSpacing:".12em" }}>
                       {showAnalysis ? "HIDE DATA" : "MORE DATA"}
                     </button>
                   </div>
 
-                  <div style={{ display:"grid", gap:10 }}>
+                  <div style={{ display:"none" }}>
                     <AnalystList title="PROS" items={visiblePros} tone="#10b981" />
                     <AnalystList title="CONS" items={visibleCons} tone="#ef4444" />
                   </div>
