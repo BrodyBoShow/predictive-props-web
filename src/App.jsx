@@ -2607,9 +2607,9 @@ export default function NBAPropsModel() {
           const teamUsage = (g?.[pt] || [])
             .map(name => {
               const p = effectiveDB[name];
-              return { name, usg: +(p?.po?.usg ?? p?.rs?.usg ?? 0), min: +(p?.po?.min ?? p?.rs?.min ?? 0) };
+              return { name, team: p?.team, usg: +(p?.po?.usg ?? p?.rs?.usg ?? 0), min: +(p?.po?.min ?? p?.rs?.min ?? 0) };
             })
-            .filter(x => x.usg > 0)
+            .filter(x => x.team === pt && x.usg > 0 && x.min >= 8)
             .sort((a, b) => b.usg - a.usg);
           const myUsage = +(player.po?.usg ?? player.rs?.usg ?? 0);
           const usageRank = teamUsage.findIndex(x => x.name === player.key) + 1;
