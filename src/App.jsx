@@ -2607,17 +2607,23 @@ export default function NBAPropsModel() {
             });
           }
           if (pr.id === "points" || pr.id === "three_pointers" || pr.id === "field_goal_attempts" || pr.id === "field_goal_made" || pr.id === "two_point_attempts" || pr.id === "three_point_attempts") {
-            const profileBits = [];
-            if (shotMix.pctPts3pt != null) profileBits.push(`${shotMix.pctPts3pt}% pts from 3`);
-            if (shotMix.pctPtsPaint != null) profileBits.push(`${shotMix.pctPtsPaint}% paint`);
-            if (shotMix.pctPtsFt != null) profileBits.push(`${shotMix.pctPtsFt}% FT`);
-            if (playerTrack.driveFga) profileBits.push(`${playerTrack.driveFga} drives FGA`);
-            if (playerTrack.pullUpFga) profileBits.push(`${playerTrack.pullUpFga} pull-up FGA`);
+            const scoringBits = [];
+            const attemptBits = [];
+            if (shotMix.pctPts3pt != null) scoringBits.push(`${shotMix.pctPts3pt}% pts from 3`);
+            if (shotMix.pctPtsPaint != null) scoringBits.push(`${shotMix.pctPtsPaint}% paint pts`);
+            if (shotMix.pctPtsFt != null) scoringBits.push(`${shotMix.pctPtsFt}% FT pts`);
+            if (shotMix.pctFga3pt != null) attemptBits.push(`${shotMix.pctFga3pt}% 3PA rate`);
+            if (playerTrack.driveFga) attemptBits.push(`${playerTrack.driveFga} drive FGA/g`);
+            if (playerTrack.pullUpFga) attemptBits.push(`${playerTrack.pullUpFga} pull-up FGA/g`);
+            if (playerTrack.catchShootFga) attemptBits.push(`${playerTrack.catchShootFga} C&S FGA/g`);
+            const scoringText = scoringBits.length ? `Scoring mix: ${scoringBits.slice(0, 3).join(" / ")}.` : "";
+            const attemptText = attemptBits.length ? ` Attempt profile: ${attemptBits.slice(0, 3).join(" / ")}.` : "";
+            const schemeText = fg3Vs > .02 ? `${ot} allows extra 3PA.` : rimVs > .02 ? `${ot} is soft at the rim.` : "No obvious scheme boost from available profile.";
             matchupNotes.push({
-              title: "Shot profile fit",
-              text: profileBits.length
-                ? `${profileBits.slice(0, 4).join(" · ")}. ${fg3Vs > .02 ? `${ot} allows extra 3PA.` : rimVs > .02 ? `${ot} is soft at the rim.` : "No obvious scheme boost from shot profile."}`
-                : "Shot-profile data is limited for this player/prop.",
+              title: "Scoring mix vs matchup",
+              text: scoringText || attemptText
+                ? `${scoringText}${attemptText} ${schemeText}`.trim()
+                : "Scoring-mix data is limited for this player/prop.",
             });
           }
           if (pr.id === "assists" || pr.id === "pa" || pr.id === "pra" || pr.id === "ra") {
@@ -4055,7 +4061,7 @@ export default function NBAPropsModel() {
                     {player.po.usg && <div className="mr"><span className="mk">PO Usage% / TS%</span><span className={`mv ${player.po.ts && player.rs.ts && player.po.ts > player.rs.ts ? "pos" : player.po.ts && player.rs.ts && player.po.ts < player.rs.ts ? "neg" : ""}`}>{player.po.usg}% / {player.po.ts}%<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM</span></span></div>}
                     {player.onOffDelta !== null && player.onOffDelta !== undefined && <div className="mr"><span className="mk">On/Off NETRTG delta</span><span className={`mv ${player.onOffDelta > 0 ? "pos" : player.onOffDelta < 0 ? "neg" : ""}`}>{player.onOffDelta > 0 ? "+" : ""}{player.onOffDelta}<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM ON/OFF</span></span></div>}
                     <div className="mr"><span className="mk">PO min/game</span><span className="mv">{player.po.min} ({player.po.gp}g)</span></div>
-                    {scoringBreakdown?.[pkey] && <div className="mr"><span className="mk">PO shot profile (3s / paint / FTs / midrange)</span><span className="mv">{scoringBreakdown[pkey].pctPts3pt}% / {scoringBreakdown[pkey].pctPtsPaint}% / {scoringBreakdown[pkey].pctPtsFt}% / {scoringBreakdown[pkey].pctPtsMr}%<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM SCORING</span></span></div>}
+                    {scoringBreakdown?.[pkey] && <div className="mr"><span className="mk">PO scoring mix (pts from 3 / paint / FT / midrange)</span><span className="mv">{scoringBreakdown[pkey].pctPts3pt}% / {scoringBreakdown[pkey].pctPtsPaint}% / {scoringBreakdown[pkey].pctPtsFt}% / {scoringBreakdown[pkey].pctPtsMr}%{scoringBreakdown[pkey].pctFga3pt != null ? ` / ${scoringBreakdown[pkey].pctFga3pt}% 3PA rate` : ""}<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM SCORING</span></span></div>}
                     {clutchStats?.[pkey]?.gp >= 2 && <div className="mr"><span className="mk">PO clutch (last 5min ±5pts) — {clutchStats[pkey].gp}g</span><span className={`mv ${clutchStats[pkey].ppg > player.po.ppg ? "pos" : clutchStats[pkey].ppg < player.po.ppg ? "neg" : ""}`}>{clutchStats[pkey].ppg} PPG · {clutchStats[pkey].rpg} RPG · {clutchStats[pkey].apg} APG · {clutchStats[pkey].pm > 0 ? "+" : ""}{clutchStats[pkey].pm} PM<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM CLUTCH</span></span></div>}
                     {hustleStats?.[pkey] && (pr.id === "rebounds" || pr.id === "pra") && <div className="mr"><span className="mk">PO hustle — def box-outs / off box-outs / box-out rebs</span><span className="mv">{hustleStats[pkey].defBoxouts} / {hustleStats[pkey].offBoxouts} / {hustleStats[pkey].boxoutRebounds} per game<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM HUSTLE</span></span></div>}
                     {hustleStats?.[pkey] && (pr.id === "steals") && <div className="mr"><span className="mk">PO hustle — deflections / charges drawn / contested shots</span><span className="mv">{hustleStats[pkey].deflections} / {hustleStats[pkey].chargesDrawn} / {hustleStats[pkey].contestedShots} per game<span style={{ fontFamily: "Azeret Mono,monospace", fontSize: 9, color: "#3a4a62", marginLeft: 6 }}>NBA.COM HUSTLE</span></span></div>}
