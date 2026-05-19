@@ -445,6 +445,7 @@ export default function NBAPropsModel() {
   const [nbaApiStatus, setNbaApiStatus] = useState("loading"); // "loading" | "warming" | "live" | "offline"
   const [homeAwaySplits, setHomeAwaySplits] = useState(null); // per-player home/road PO splits
   const [teamDefense, setTeamDefense] = useState(null);       // per-team zone defense (3pt, rim)
+  const [teamContext, setTeamContext] = useState(null);       // per-team style context (four factors/misc/advanced)
   const [scoringBreakdown, setScoringBreakdown] = useState(null); // % pts from 3s/paint/FTs/MR
   const [clutchStats, setClutchStats] = useState(null);           // clutch PO stats per player
   const [hustleStats, setHustleStats] = useState(null);           // deflections, box-outs, etc
@@ -811,11 +812,12 @@ export default function NBAPropsModel() {
           return await r.json();
         } catch { return null; }
       };
-      const [playersData, teamsData, splitsData, teamDefData, scoringData, clutchData, hustleData, trackingData, matchupData] = await Promise.all([
+      const [playersData, teamsData, splitsData, teamDefData, teamCtxData, scoringData, clutchData, hustleData, trackingData, matchupData] = await Promise.all([
         safeJson(`${API_BASE}/players`),
         safeJson(`${API_BASE}/teams`),
         safeJson(`${API_BASE}/splits`),
         safeJson(`${API_BASE}/team-defense`),
+        safeJson(`${API_BASE}/team-context`),
         safeJson(`${API_BASE}/scoring`),
         safeJson(`${API_BASE}/clutch`),
         safeJson(`${API_BASE}/hustle`),
@@ -829,6 +831,7 @@ export default function NBAPropsModel() {
       if (teamsData?.success)      setLiveTeamData(teamsData.teams);
       if (splitsData?.success)     setHomeAwaySplits(splitsData.splits);
       if (teamDefData?.success)    setTeamDefense(teamDefData.teamDefense);
+      if (teamCtxData?.success)    setTeamContext(teamCtxData.teamContext);
       if (scoringData?.success)    setScoringBreakdown(scoringData.scoring);
       if (clutchData?.success)     setClutchStats(clutchData.clutch);
       if (hustleData?.success)     setHustleStats(hustleData.hustle);
@@ -2588,6 +2591,7 @@ export default function NBAPropsModel() {
           else if (Math.abs(baselineMovePct) >= 8) addSignal(signalCons, "Calibration Move", `${Math.abs(baselineMovePct).toFixed(1)}% move cuts against the side.`);
           if (analysisDataQuality.has_tracking) addSignal(signalPros, "Tracking", "Player tracking data was included in calibration.");
           else addSignal(signalCons, "Tracking", "No player tracking signal for this run.");
+          if (analysisDataQuality.has_team_context) addSignal(signalPros, "Team Style", "Live four-factor and misc team profile was included.");
           if (analysisFeatures.opp_def_roll10 != null) {
             const def = +analysisFeatures.opp_def_roll10;
             const defText = def >= 115 ? "weaker defensive environment" : def <= 111 ? "tough defensive environment" : "neutral defensive environment";
@@ -2599,6 +2603,10 @@ export default function NBAPropsModel() {
           const oppPaceVal = analysisFeatures.opp_pace_roll10 != null ? +analysisFeatures.opp_pace_roll10 : +(otd?.rsPace || proj.gamePace || 0);
           const fg3Vs = analysisFeatures.fg3_vs_avg != null ? +analysisFeatures.fg3_vs_avg : +(teamDefense?.[ot]?.fg3VsAvg || 0);
           const rimVs = analysisFeatures.rim_vs_avg != null ? +analysisFeatures.rim_vs_avg : +(teamDefense?.[ot]?.rimVsAvg || 0);
+          const styleDebug = analysisBreakdown.team_context_debug || {};
+          const ownStyle = { ...(teamContext?.[pt] || {}), ...(styleDebug.own || {}) };
+          const oppStyle = { ...(teamContext?.[ot] || {}), ...(styleDebug.opp || {}) };
+          const fmtPct = (v) => v == null ? null : `${(+v * 100).toFixed(1)}%`;
           const playerTrack = { ...(trackingStats?.[pkey] || {}), ...(analysisBreakdown.tracking_debug || {}) };
           const shotMix = { ...(scoringBreakdown?.[pkey] || {}), ...(analysisBreakdown.scoring_debug || {}) };
           const hasScoringComponent = ["points","three_pointers","field_goal_attempts","field_goal_made","two_point_attempts","three_point_attempts","pra","pa","pr"].includes(pr.id);
@@ -2617,6 +2625,10 @@ export default function NBAPropsModel() {
           const matchupChips = [
             oppDefVal ? { k:"OPP DEF", v:oppDefVal.toFixed(1), c:oppDefVal >= 115 ? "#10b981" : oppDefVal <= 111 ? "#ef4444" : "#f59e0b" } : null,
             oppPaceVal ? { k:"PACE", v:oppPaceVal.toFixed(1), c:oppPaceVal >= 99 ? "#10b981" : oppPaceVal <= 94 ? "#ef4444" : "#94a3b8" } : null,
+            oppStyle.oppEFG != null ? { k:"OPP eFG", v:fmtPct(oppStyle.oppEFG), c:+oppStyle.oppEFG >= .56 ? "#10b981" : +oppStyle.oppEFG <= .525 ? "#ef4444" : "#f59e0b" } : null,
+            oppStyle.oppTovPct != null ? { k:"TO PRESS", v:fmtPct(oppStyle.oppTovPct), c:+oppStyle.oppTovPct >= .145 ? "#ef4444" : +oppStyle.oppTovPct <= .12 ? "#10b981" : "#f59e0b" } : null,
+            oppStyle.drebPct != null ? { k:"OPP DREB", v:fmtPct(oppStyle.drebPct), c:+oppStyle.drebPct >= .725 ? "#ef4444" : +oppStyle.drebPct <= .68 ? "#10b981" : "#94a3b8" } : null,
+            ownStyle.offEFG != null ? { k:"OWN eFG", v:fmtPct(ownStyle.offEFG), c:+ownStyle.offEFG >= .56 ? "#10b981" : +ownStyle.offEFG <= .525 ? "#ef4444" : "#94a3b8" } : null,
             myUsage ? { k:"USAGE", v:`${myUsage.toFixed(1)}%`, c:"#818cf8" } : null,
             player.po?.min ? { k:"MIN", v:player.po.min, c:"#60a5fa" } : null,
           ].filter(Boolean);
@@ -2631,6 +2643,17 @@ export default function NBAPropsModel() {
             matchupNotes.push({
               title: oppDefVal >= 115 ? "Opponent defense gives room" : oppDefVal <= 111 ? "Opponent defense is a headwind" : "Opponent defense is neutral",
               text: `${ot} defensive efficiency sits at ${oppDefVal.toFixed(1)}. That ${oppDefVal >= 115 ? "raises" : oppDefVal <= 111 ? "lowers" : "does not strongly move"} the raw scoring environment.`,
+            });
+          }
+          if (ownStyle.offEFG != null || oppStyle.oppEFG != null || oppStyle.oppTovPct != null) {
+            const styleBits = [];
+            if (oppStyle.oppEFG != null) styleBits.push(`${ot} allows ${fmtPct(oppStyle.oppEFG)} eFG`);
+            if (oppStyle.oppTovPct != null) styleBits.push(`${fmtPct(oppStyle.oppTovPct)} forced turnover rate`);
+            if (oppStyle.oppFtRate != null) styleBits.push(`${fmtPct(oppStyle.oppFtRate)} FT rate allowed`);
+            if (ownStyle.offEFG != null) styleBits.push(`${pt} creates ${fmtPct(ownStyle.offEFG)} eFG`);
+            matchupNotes.push({
+              title: "Team style fit",
+              text: `${styleBits.slice(0, 4).join("; ")}. This is the live proxy layer for scheme pressure, shot quality, and offensive shape.`,
             });
           }
           if (hasScoringComponent) {
@@ -2679,7 +2702,7 @@ export default function NBAPropsModel() {
               text: `${injuryContext.outPlayers.slice(0, 3).map(x => dn(x.name)).join(", ")} OUT creates ${injuryContext.boostPPG} projected scoring load to redistribute.`,
             });
           }
-          const visibleMatchupNotes = matchupNotes.slice(0, 3);
+          const visibleMatchupNotes = matchupNotes.slice(0, 5);
           const visiblePros = signalPros.slice(0, 2);
           const visibleCons = signalCons.slice(0, 2);
           const AnalystList = ({ title, items, tone }) => (
@@ -3852,6 +3875,7 @@ export default function NBAPropsModel() {
                           ["Matchup Δ", dq.has_matchup],
                           ["Scoring", dq.has_scoring],
                           ["Team Defense", dq.has_team_def],
+                          ["Team Style", dq.has_team_context],
                           ["Splits H/R", dq.has_splits],
                           ["Clutch", dq.has_clutch],
                           ["Pace", dq.has_pace],
@@ -4082,6 +4106,15 @@ export default function NBAPropsModel() {
                     <div className="cc"><div className="ccl">Home/Road</div><div className="ccv" style={{ color: isHome ? "#10b981" : "#f59e0b" }}>{isHome ? "🏠 HOME" : "✈ ROAD"}</div><div className="ccs">SPORTRADAR · {isHome ? "+3.16%" : "-3.06%"} adj{["points","pra","pa","pr"].includes(pr.id) ? "" : " (N/A)"}</div></div>
                     <div className="cc"><div className="ccl">Rest Days</div><div className="ccv">{restDays !== null ? restDays + "d" : "—"}</div><div className="ccs">SPORTRADAR · {restDays === 2 ? "+1.5% adj" : restDays >= 3 ? "+2.0% adj" : "baseline"}</div></div>
                   </div>
+
+                  {(ownStyle.offEFG != null || oppStyle.oppEFG != null) && (
+                    <div className="cg" style={{ marginTop: 8 }}>
+                      <div className="cc"><div className="ccl">{pt} Shot Quality</div><div className="ccv">{fmtPct(ownStyle.offEFG)}</div><div className="ccs">NBA.COM FOUR FACTORS eFG</div></div>
+                      <div className="cc"><div className="ccl">{ot} Shot Suppression</div><div className="ccv">{fmtPct(oppStyle.oppEFG)}</div><div className="ccs">OPPONENT eFG ALLOWED</div></div>
+                      <div className="cc"><div className="ccl">{ot} Ball Pressure</div><div className="ccv">{fmtPct(oppStyle.oppTovPct)}</div><div className="ccs">OPPONENT TOV FORCED RATE</div></div>
+                      <div className="cc"><div className="ccl">{ot} Glass Control</div><div className="ccv">{fmtPct(oppStyle.drebPct)}</div><div className="ccs">DEFENSIVE REBOUND RATE</div></div>
+                    </div>
+                  )}
 
                   {/* Player profile */}
                   <div className="mb" style={{ marginTop: 10 }}>
