@@ -2599,8 +2599,11 @@ export default function NBAPropsModel() {
           const oppPaceVal = analysisFeatures.opp_pace_roll10 != null ? +analysisFeatures.opp_pace_roll10 : +(otd?.rsPace || proj.gamePace || 0);
           const fg3Vs = analysisFeatures.fg3_vs_avg != null ? +analysisFeatures.fg3_vs_avg : +(teamDefense?.[ot]?.fg3VsAvg || 0);
           const rimVs = analysisFeatures.rim_vs_avg != null ? +analysisFeatures.rim_vs_avg : +(teamDefense?.[ot]?.rimVsAvg || 0);
-          const playerTrack = trackingStats?.[pkey] || {};
-          const shotMix = scoringBreakdown?.[pkey] || {};
+          const playerTrack = { ...(trackingStats?.[pkey] || {}), ...(analysisBreakdown.tracking_debug || {}) };
+          const shotMix = { ...(scoringBreakdown?.[pkey] || {}), ...(analysisBreakdown.scoring_debug || {}) };
+          const hasScoringComponent = ["points","three_pointers","field_goal_attempts","field_goal_made","two_point_attempts","three_point_attempts","pra","pa","pr"].includes(pr.id);
+          const hasAssistComponent = ["assists","pa","pra","ra"].includes(pr.id);
+          const hasReboundComponent = ["rebounds","pra","pr","ra"].includes(pr.id);
           const teamUsage = (g?.[pt] || [])
             .map(name => {
               const p = effectiveDB[name];
@@ -2630,7 +2633,7 @@ export default function NBAPropsModel() {
               text: `${ot} defensive efficiency sits at ${oppDefVal.toFixed(1)}. That ${oppDefVal >= 115 ? "raises" : oppDefVal <= 111 ? "lowers" : "does not strongly move"} the raw scoring environment.`,
             });
           }
-          if (pr.id === "points" || pr.id === "three_pointers" || pr.id === "field_goal_attempts" || pr.id === "field_goal_made" || pr.id === "two_point_attempts" || pr.id === "three_point_attempts") {
+          if (hasScoringComponent) {
             const scoringBits = [];
             const attemptBits = [];
             if (shotMix.pctPts3pt != null) scoringBits.push(`${shotMix.pctPts3pt}% pts from 3`);
@@ -2650,15 +2653,19 @@ export default function NBAPropsModel() {
                 : "Scoring-mix data is limited for this player/prop.",
             });
           }
-          if (pr.id === "assists" || pr.id === "pa" || pr.id === "pra" || pr.id === "ra") {
+          if (hasAssistComponent) {
+            const potAst = playerTrack.potentialAst ?? analysisFeatures.l5_potential_ast;
+            const convRate = playerTrack.astConvRate;
             matchupNotes.push({
               title: "Creation profile",
-              text: playerTrack.potentialAst
-                ? `${playerTrack.potentialAst} potential assists/g with ${((playerTrack.astConvRate || 0) * 100).toFixed(0)}% conversion. This tells us whether the assist line is volume-backed or make-dependent.`
-                : "No reliable potential-assist tracking for this run.",
+              text: potAst
+                ? `${potAst} potential assists/g${convRate != null ? ` with ${(convRate * 100).toFixed(0)}% conversion` : ""}. This tells us whether the assist side is volume-backed or make-dependent.`
+                : analysisDataQuality.has_tracking
+                  ? "Tracking was included by the server, but no potential-assist volume was exposed for this player."
+                  : "No reliable potential-assist tracking for this run.",
             });
           }
-          if (pr.id === "rebounds" || pr.id === "pra" || pr.id === "pr" || pr.id === "ra") {
+          if (hasReboundComponent) {
             matchupNotes.push({
               title: "Board chances",
               text: playerTrack.rebChancePct
