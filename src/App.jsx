@@ -340,6 +340,13 @@ const BetCard = ({ r, propLabels, onOpen }) => {
             MIXED
           </span>
         )}
+        {r.teamTotalAllocated && (
+          <span style={{ fontSize:9, color:"#38bdf8", background:"rgba(56,189,248,.08)",
+            border:"1px solid rgba(56,189,248,.25)", borderRadius:3, padding:"1px 5px" }}
+            title={`Team-total allocation trimmed ${r.teamTotalTrim?.toFixed?.(1) ?? r.teamTotalTrim} pts from original ${r.originalProj?.toFixed?.(1) ?? r.originalProj}`}>
+            TEAM
+          </span>
+        )}
         {r.sharedConflict && <span className="bet-card-flag" style={{ color:"#f59e0b" }} title="Teammate conflict">⚡</span>}
         {r.driftDown      && <span className="bet-card-flag" style={{ color:"#f59e0b" }} title="Recent over-projection">↘</span>}
         {onOpen && (
@@ -1069,10 +1076,10 @@ export default function NBAPropsModel() {
       setBulkProgress(p => ({ ...p, done: p.done + 1 }));
       await new Promise(r => setTimeout(r, 120));
     }
-    // ── Team-over warning (pts) — flag when ≥75% of tracked players project OVER ──
-    // XGBoost produces individually-calibrated predictions; team-total normalization
-    // was deflating them and causing bulk ≠ single divergence. Removed scaling;
-    // keeping the warning flag so the UI can alert when most of a team shows OVER.
+    // ── Team-total allocation (points only) ───────────────────────────────────
+    // Guardrail, not a blanket nerf: only activates when the entered points props
+    // materially exceed that team's implied total. Strong matchup/EV plays are
+    // protected; the excess is trimmed from weaker overs first.
     const byTeam = {};
     results.forEach(r => {
       if (r.propId === "points") {
@@ -1085,6 +1092,69 @@ export default function NBAPropsModel() {
       const overCount = rows.filter(r => r.lean === "OVER").length;
       const flagWarn  = overCount / rows.length >= 0.75;
       if (flagWarn) rows.forEach(r => { r.teamOverWarn = true; });
+
+      const ctx = rows.find(r => r.gameCtx?.total)?.gameCtx;
+      if (!ctx?.total) return;
+      const spread = Number(ctx.spread ?? 0); // spread is from row/team POV
+      const implied = (Number(ctx.total) - spread) / 2;
+      if (!Number.isFinite(implied) || implied <= 0) return;
+
+      const projectedSum = rows.reduce((s, r) => s + Number(r.proj || 0), 0);
+      const enteredLineSum = rows.reduce((s, r) => s + Number(r.line || 0), 0);
+      // Props board usually covers most, not all, team scoring. Use the larger
+      // of a market-line allowance and implied-total coverage to avoid punishing
+      // a team with several genuinely soft individual lines.
+      const allowance = Math.max(implied * 0.94, enteredLineSum * 1.08);
+      const excess = projectedSum - allowance;
+      if (excess <= Math.max(1.25, implied * 0.015)) return;
+
+      const overRows = rows
+        .filter(r => r.lean === "OVER" && r.proj > r.line)
+        .map(r => {
+          const edgePts = Math.max(0, r.proj - r.line);
+          const mcBoost = r.mcSideProb ? Math.max(0, (r.mcSideProb - 0.52) * 8) : 0;
+          const gradeBoost = r.grade === "LOCK" ? 2.4 : r.grade === "ACTIONABLE" ? 1.2 : 0;
+          const matchupStrength = 1 + Math.max(0, r.ev) / 18 + mcBoost + gradeBoost + Math.min(1.5, r.modelLift * 4);
+          return { r, edgePts, trimWeight: 1 / Math.pow(matchupStrength, 1.35) };
+        })
+        .filter(x => x.edgePts > 0.05);
+      if (!overRows.length) return;
+
+      let remaining = excess;
+      let active = overRows;
+      for (let pass = 0; pass < 3 && remaining > 0.05 && active.length; pass++) {
+        const totalWeight = active.reduce((s, x) => s + x.trimWeight, 0);
+        const next = [];
+        active.forEach(x => {
+          const desired = remaining * (x.trimWeight / totalWeight);
+          const maxTrim = x.r.grade === "LOCK" ? x.edgePts * 0.35
+                        : x.r.grade === "ACTIONABLE" ? x.edgePts * 0.65
+                        : x.edgePts * 0.90;
+          const trim = Math.min(desired, Math.max(0, maxTrim - (x.r.teamTotalTrim || 0)));
+          if (trim > 0) {
+            x.r.originalProj = x.r.originalProj ?? x.r.proj;
+            x.r.teamTotalTrim = +(Number(x.r.teamTotalTrim || 0) + trim).toFixed(2);
+            x.r.proj = +Math.max(0, x.r.proj - trim).toFixed(1);
+            x.r.ev = +((x.r.proj / x.r.line - 1) * 100).toFixed(2);
+            x.r.lean = x.r.proj > x.r.line ? "OVER" : "UNDER";
+            x.r.teamTotalAllocated = true;
+            x.r.teamImplied = +implied.toFixed(1);
+            x.r.teamProjectedBefore = +projectedSum.toFixed(1);
+            x.r.teamAllowance = +allowance.toFixed(1);
+            const injAdj = x.r.breakdown?.injCascadeAdj ?? 0;
+            x.r.grade = computeGrade({
+              evPct: x.r.ev, cv: x.r.cv, poGp: x.r.poGp, projection: x.r.proj,
+              baseline: x.r.base, q25: null, q75: null, line: x.r.line,
+              monteCarlo: x.r.monteCarlo, trustScore: x.r.band?.trust_score,
+              injCascadeAdj: injAdj, driftDown: x.r.driftDown,
+            });
+            remaining -= trim;
+          }
+          if ((x.r.teamTotalTrim || 0) < maxTrim - 0.05) next.push(x);
+        });
+        active = next;
+      }
+      if (remaining > 0.25) rows.forEach(r => { r.teamTotalResidual = +remaining.toFixed(2); });
     });
 
     // ── Shared-resource conflict check (REB, AST) ──────────────────────────────
@@ -2062,18 +2132,22 @@ export default function NBAPropsModel() {
                   {(() => {
                     const ptsByTeam = {};
                     bulkProjResults.filter(r => r.propId === "points").forEach(r => {
-                      if (!ptsByTeam[r.team]) ptsByTeam[r.team] = { overs: 0, total: 0, scaled: false };
+                      if (!ptsByTeam[r.team]) ptsByTeam[r.team] = { overs: 0, total: 0, allocated: false, trim: 0 };
                       ptsByTeam[r.team].total++;
                       if (r.lean === "OVER") ptsByTeam[r.team].overs++;
-                      if (r.scaled) ptsByTeam[r.team].scaled = true;
+                      if (r.teamTotalAllocated) {
+                        ptsByTeam[r.team].allocated = true;
+                        ptsByTeam[r.team].trim += Number(r.teamTotalTrim || 0);
+                      }
                     });
-                    const warnings = Object.entries(ptsByTeam).filter(([, v]) => v.total >= 3 && v.overs / v.total >= 0.75);
+                    const warnings = Object.entries(ptsByTeam).filter(([, v]) => v.allocated || (v.total >= 3 && v.overs / v.total >= 0.75));
                     if (!warnings.length) return null;
                     return (
                       <div style={{ padding:"8px 14px", borderBottom:"1px solid rgba(245,158,11,.15)", background:"rgba(245,158,11,.05)" }}>
                         {warnings.map(([team, v]) => (
                           <div key={team} style={{ fontFamily:"'Azeret Mono',monospace", fontSize:11, color:"#f59e0b", marginBottom:2 }}>
-                            ⚠ {team} — {v.overs}/{v.total} pts props leaning OVER · verify team totals
+                            ⚠ {team} — {v.overs}/{v.total} pts props leaning OVER
+                            {v.allocated ? ` · team-total allocator trimmed ${v.trim.toFixed(1)} pts from weaker overs` : " · verify team totals"}
                           </div>
                         ))}
                       </div>
