@@ -340,11 +340,11 @@ const BetCard = ({ r, propLabels, onOpen }) => {
             MIXED
           </span>
         )}
-        {r.teamTotalAllocated && (
+        {r.resourceAllocated && (
           <span style={{ fontSize:9, color:"#38bdf8", background:"rgba(56,189,248,.08)",
             border:"1px solid rgba(56,189,248,.25)", borderRadius:3, padding:"1px 5px" }}
-            title={`Team-total allocation trimmed ${r.teamTotalTrim?.toFixed?.(1) ?? r.teamTotalTrim} pts from original ${r.originalProj?.toFixed?.(1) ?? r.originalProj}`}>
-            TEAM
+            title={`${r.resourceType || "Shared pool"} allocation trimmed ${r.resourceTrim?.toFixed?.(1) ?? r.resourceTrim} from original ${r.originalProj?.toFixed?.(1) ?? r.originalProj}`}>
+            POOL
           </span>
         )}
         {r.sharedConflict && <span className="bet-card-flag" style={{ color:"#f59e0b" }} title="Teammate conflict">⚡</span>}
@@ -1067,6 +1067,10 @@ export default function NBAPropsModel() {
             gameCtx: data.game_context ?? null,
             monteCarlo: mc,
             mcSideProb,
+            q25,
+            q75,
+            trustScore,
+            injAdj,
             qKelly,
             pulledAt,
             driftDown,
@@ -1076,37 +1080,74 @@ export default function NBAPropsModel() {
       setBulkProgress(p => ({ ...p, done: p.done + 1 }));
       await new Promise(r => setTimeout(r, 120));
     }
-    // ── Team-total allocation (points only) ───────────────────────────────────
-    // Guardrail, not a blanket nerf: only activates when the entered points props
-    // materially exceed that team's implied total. Strong matchup/EV plays are
-    // protected; the excess is trimmed from weaker overs first.
-    const byTeam = {};
-    results.forEach(r => {
-      if (r.propId === "points") {
-        if (!byTeam[r.team]) byTeam[r.team] = [];
-        byTeam[r.team].push(r);
+    // ── Shared-opportunity allocation ─────────────────────────────────────────
+    // Guardrail, not a blanket nerf: only activates when entered props for the
+    // same team/stat pool materially exceed the market-implied opportunity pool.
+    // Strong matchup/EV plays are protected; weaker overs absorb most trims.
+    const POOL_CFG = {
+      points:               { minRows: 3, lift: 1.08, label: "points pool", useTeamImplied: true },
+      assists:              { minRows: 2, lift: 1.10, label: "assist pool", env: 0.20 },
+      rebounds:             { minRows: 2, lift: 1.10, label: "rebound pool", env: 0.08 },
+      three_pointers:       { minRows: 2, lift: 1.10, label: "3PM pool", env: 0.18 },
+      field_goal_attempts:  { minRows: 2, lift: 1.08, label: "shot-volume pool", env: 0.18 },
+      two_point_attempts:   { minRows: 2, lift: 1.08, label: "2PA pool", env: 0.14 },
+      field_goal_made:      { minRows: 2, lift: 1.08, label: "FGM pool", env: 0.16 },
+      pra:                  { minRows: 2, lift: 1.08, label: "PRA combo pool", env: 0.14 },
+      pa:                   { minRows: 2, lift: 1.08, label: "P+A combo pool", env: 0.16 },
+      pr:                   { minRows: 2, lift: 1.08, label: "P+R combo pool", env: 0.12 },
+      ra:                   { minRows: 2, lift: 1.08, label: "R+A combo pool", env: 0.10 },
+    };
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const recalcAfterAllocation = (r) => {
+      r.ev = +((r.proj / r.line - 1) * 100).toFixed(2);
+      r.lean = r.proj > r.line ? "OVER" : "UNDER";
+      r.grade = computeGrade({
+        evPct: r.ev, cv: r.cv, poGp: r.poGp, projection: r.proj,
+        baseline: r.base, q25: r.q25, q75: r.q75, line: r.line,
+        monteCarlo: r.monteCarlo, trustScore: r.trustScore ?? r.band?.trust_score,
+        injCascadeAdj: r.injAdj ?? 0, driftDown: r.driftDown,
+      });
+      const sideProb = r.monteCarlo ? (r.lean === "OVER" ? r.monteCarlo.prob_over : r.monteCarlo.prob_under) : null;
+      r.mcSideProb = sideProb;
+      if (sideProb) {
+        const p = Math.min(0.85, Math.max(0.15, sideProb));
+        const b = 10 / 11;
+        const k = Math.max(0, (b * p - (1 - p)) / b);
+        r.qKelly = +(k * 0.25 * 100).toFixed(1);
+      } else {
+        r.qKelly = null;
       }
+    };
+    const groups = {};
+    results.forEach(r => {
+      if (!POOL_CFG[r.propId]) return;
+      const key = `${r.team}__${r.propId}`;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(r);
     });
-    Object.entries(byTeam).forEach(([team, rows]) => {
-      if (rows.length < 3) return;
+    Object.values(groups).forEach(rows => {
+      const cfg = POOL_CFG[rows[0]?.propId];
+      if (!cfg || rows.length < cfg.minRows) return;
       const overCount = rows.filter(r => r.lean === "OVER").length;
-      const flagWarn  = overCount / rows.length >= 0.75;
-      if (flagWarn) rows.forEach(r => { r.teamOverWarn = true; });
+      if (rows[0].propId === "points" && overCount / rows.length >= 0.75) {
+        rows.forEach(r => { r.teamOverWarn = true; });
+      }
 
       const ctx = rows.find(r => r.gameCtx?.total)?.gameCtx;
-      if (!ctx?.total) return;
-      const spread = Number(ctx.spread ?? 0); // spread is from row/team POV
-      const implied = (Number(ctx.total) - spread) / 2;
-      if (!Number.isFinite(implied) || implied <= 0) return;
-
-      const projectedSum = rows.reduce((s, r) => s + Number(r.proj || 0), 0);
+      const spread = Number(ctx?.spread ?? 0);
+      const implied = ctx?.total ? (Number(ctx.total) - spread) / 2 : null;
       const enteredLineSum = rows.reduce((s, r) => s + Number(r.line || 0), 0);
-      // Props board usually covers most, not all, team scoring. Use the larger
-      // of a market-line allowance and implied-total coverage to avoid punishing
-      // a team with several genuinely soft individual lines.
-      const allowance = Math.max(implied * 0.94, enteredLineSum * 1.08);
+      const projectedSum = rows.reduce((s, r) => s + Number(r.proj || 0), 0);
+      if (enteredLineSum <= 0 || projectedSum <= 0) return;
+
+      let allowance = enteredLineSum * cfg.lift;
+      if (Number.isFinite(implied) && implied > 0) {
+        const envBoost = clamp(((implied - 114) / 114) * (cfg.env ?? 0), -0.035, 0.06);
+        allowance = enteredLineSum * (cfg.lift + envBoost);
+        if (cfg.useTeamImplied) allowance = Math.max(allowance, implied * 0.94);
+      }
       const excess = projectedSum - allowance;
-      if (excess <= Math.max(1.25, implied * 0.015)) return;
+      if (excess <= Math.max(0.65, enteredLineSum * 0.025)) return;
 
       const overRows = rows
         .filter(r => r.lean === "OVER" && r.proj > r.line)
@@ -1130,31 +1171,31 @@ export default function NBAPropsModel() {
           const maxTrim = x.r.grade === "LOCK" ? x.edgePts * 0.35
                         : x.r.grade === "ACTIONABLE" ? x.edgePts * 0.65
                         : x.edgePts * 0.90;
-          const trim = Math.min(desired, Math.max(0, maxTrim - (x.r.teamTotalTrim || 0)));
+          const prevTrim = Number(x.r.resourceTrim || 0);
+          const trim = Math.min(desired, Math.max(0, maxTrim - prevTrim));
           if (trim > 0) {
             x.r.originalProj = x.r.originalProj ?? x.r.proj;
-            x.r.teamTotalTrim = +(Number(x.r.teamTotalTrim || 0) + trim).toFixed(2);
+            x.r.resourceTrim = +(prevTrim + trim).toFixed(2);
             x.r.proj = +Math.max(0, x.r.proj - trim).toFixed(1);
-            x.r.ev = +((x.r.proj / x.r.line - 1) * 100).toFixed(2);
-            x.r.lean = x.r.proj > x.r.line ? "OVER" : "UNDER";
-            x.r.teamTotalAllocated = true;
-            x.r.teamImplied = +implied.toFixed(1);
-            x.r.teamProjectedBefore = +projectedSum.toFixed(1);
-            x.r.teamAllowance = +allowance.toFixed(1);
-            const injAdj = x.r.breakdown?.injCascadeAdj ?? 0;
-            x.r.grade = computeGrade({
-              evPct: x.r.ev, cv: x.r.cv, poGp: x.r.poGp, projection: x.r.proj,
-              baseline: x.r.base, q25: null, q75: null, line: x.r.line,
-              monteCarlo: x.r.monteCarlo, trustScore: x.r.band?.trust_score,
-              injCascadeAdj: injAdj, driftDown: x.r.driftDown,
-            });
+            x.r.resourceAllocated = true;
+            x.r.resourceType = cfg.label;
+            x.r.poolProjectedBefore = +projectedSum.toFixed(1);
+            x.r.poolAllowance = +allowance.toFixed(1);
+            if (x.r.propId === "points") {
+              x.r.teamTotalAllocated = true;
+              x.r.teamTotalTrim = x.r.resourceTrim;
+              x.r.teamImplied = Number.isFinite(implied) ? +implied.toFixed(1) : null;
+              x.r.teamProjectedBefore = x.r.poolProjectedBefore;
+              x.r.teamAllowance = x.r.poolAllowance;
+            }
+            recalcAfterAllocation(x.r);
             remaining -= trim;
           }
-          if ((x.r.teamTotalTrim || 0) < maxTrim - 0.05) next.push(x);
+          if ((x.r.resourceTrim || 0) < maxTrim - 0.05) next.push(x);
         });
         active = next;
       }
-      if (remaining > 0.25) rows.forEach(r => { r.teamTotalResidual = +remaining.toFixed(2); });
+      if (remaining > 0.25) rows.forEach(r => { r.resourceResidual = +remaining.toFixed(2); });
     });
 
     // ── Shared-resource conflict check (REB, AST) ──────────────────────────────
@@ -2128,7 +2169,7 @@ export default function NBAPropsModel() {
                     );
                   })()}
 
-                  {/* ── Team-ceiling warning banners ── */}
+                  {/* ── Shared-pool warning banners ── */}
                   {(() => {
                     const ptsByTeam = {};
                     bulkProjResults.filter(r => r.propId === "points").forEach(r => {
@@ -2148,6 +2189,26 @@ export default function NBAPropsModel() {
                           <div key={team} style={{ fontFamily:"'Azeret Mono',monospace", fontSize:11, color:"#f59e0b", marginBottom:2 }}>
                             ⚠ {team} — {v.overs}/{v.total} pts props leaning OVER
                             {v.allocated ? ` · team-total allocator trimmed ${v.trim.toFixed(1)} pts from weaker overs` : " · verify team totals"}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                  {(() => {
+                    const poolGroups = {};
+                    bulkProjResults.filter(r => r.resourceAllocated && r.propId !== "points").forEach(r => {
+                      const key = `${r.team}__${r.resourceType || r.propId}`;
+                      if (!poolGroups[key]) poolGroups[key] = { team: r.team, label: r.resourceType || r.propId, count: 0, trim: 0 };
+                      poolGroups[key].count++;
+                      poolGroups[key].trim += Number(r.resourceTrim || 0);
+                    });
+                    const groups = Object.values(poolGroups);
+                    if (!groups.length) return null;
+                    return (
+                      <div style={{ padding:"8px 14px", borderBottom:"1px solid rgba(56,189,248,.15)", background:"rgba(56,189,248,.045)" }}>
+                        {groups.map(g => (
+                          <div key={`${g.team}-${g.label}`} style={{ fontFamily:"'Azeret Mono',monospace", fontSize:11, color:"#38bdf8", marginBottom:2 }}>
+                            POOL {g.team} — {g.label} allocator trimmed {g.trim.toFixed(1)} from {g.count} weaker over{g.count !== 1 ? "s" : ""}
                           </div>
                         ))}
                       </div>
