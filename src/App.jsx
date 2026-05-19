@@ -824,6 +824,7 @@ export default function NBAPropsModel() {
           series: lg.series || base[lg.id].series,
           time:   lg.time   || base[lg.id].time,
           title:  lg.title  || base[lg.id].title,
+          date:   lg.date   || base[lg.id].date,
         };
         // Overlay dynamic rosters if static ones are empty
         if (lg.home && (!base[lg.id][lg.home] || base[lg.id][lg.home].length === 0))
@@ -836,7 +837,7 @@ export default function NBAPropsModel() {
           home: lg.home, away: lg.away,
           homeTeam: lg.homeTeam || lg.home,
           awayTeam: lg.awayTeam || lg.away,
-          time: lg.time || "TBD", title: lg.title || "Playoff Game",
+          time: lg.time || "TBD", date: lg.date || "", title: lg.title || "Playoff Game",
           series: lg.series || "",
           restDays: lg.restDays || {},
           [lg.home]: lg[lg.home] || [],
@@ -1013,6 +1014,7 @@ export default function NBAPropsModel() {
           body: JSON.stringify({
             player_name: playerKey, prop_type: task.propId, book_line: task.line,
             opponent_abbr: opp, team_abbr: task.team, is_home: task.isHome,
+            game_date: game?.date || null,
             rest_days: typeof taskRestDays === "number" ? taskRestDays : null,
             l5_avg: l5avg, l5_min: recent?.recent?.min || null, l5_stat_values: l5vals,
             high_leverage: /game\s*7|elimination|finals/i.test(game.title || ""),
@@ -1291,6 +1293,7 @@ export default function NBAPropsModel() {
               player_name: player.name, prop_type: propId,
               book_line: l5avg,          // dummy — doesn't affect projection value
               opponent_abbr: opp, team_abbr: player.team, is_home: player.isHome,
+              game_date: game?.date || null,
               rest_days: null,
               l5_avg: l5avg, l5_min: recent?.recent?.min || null, l5_stat_values: l5vals,
               high_leverage: /game\s*7|elimination|finals/i.test(game.title || ""),
@@ -1546,6 +1549,7 @@ export default function NBAPropsModel() {
             // ── Verified context for server correlation engine ──
             team_abbr:      pt,
             is_home:        isHome,
+            game_date:      game?.date || null,
             rest_days:      typeof restDays === "number" ? restDays : null,
             l5_avg:         proj.propRecent ?? null,           // client-computed L5 PO avg
             l5_min:         recentStats?.min ?? null,          // client-computed L5 PO minutes/game
