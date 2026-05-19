@@ -2520,6 +2520,8 @@ export default function NBAPropsModel() {
           const finalEpct = Math.min(Math.abs(finalEdge) / 5, 1);
           const inj = getInjury(player.key);
           const dname = dn(player.key);
+          const playerInitials = dname.split(/\s+/).filter(Boolean).slice(0, 2).map(x => x[0]).join("").toUpperCase();
+          const playerHeadshot = player.pid ? `https://cdn.nba.com/headshots/nba/latest/1040x760/${player.pid}.png` : null;
           const ec = finalEc;
           const epct = Math.min(Math.abs(edge) / 5, 1);
           const confGradeColor =
@@ -2535,10 +2537,24 @@ export default function NBAPropsModel() {
               <div style={{ marginBottom: 22 }}>
 
                 {/* Player + live badge */}
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:18, paddingBottom:16, borderBottom:"1px solid rgba(255,255,255,.06)" }}>
-                  <div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:16, marginBottom:18, paddingBottom:16, borderBottom:"1px solid rgba(255,255,255,.06)" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:14, minWidth:0 }}>
+                    <div style={{ width:82, height:72, borderRadius:14, background:`linear-gradient(135deg, ${confGradeColor}24, rgba(15,23,42,.75))`, border:`1px solid ${confGradeColor}44`, position:"relative", overflow:"hidden", flexShrink:0, display:"grid", placeItems:"center" }}>
+                      <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:22, fontWeight:900, color:confGradeColor, opacity:.35 }}>{playerInitials}</div>
+                      {playerHeadshot && (
+                        <img
+                          src={playerHeadshot}
+                          alt={dname}
+                          loading="lazy"
+                          onError={e => { e.currentTarget.style.display = "none"; }}
+                          style={{ position:"absolute", inset:"-8px -6px 0 -6px", width:"calc(100% + 12px)", height:"calc(100% + 8px)", objectFit:"cover", objectPosition:"center top" }}
+                        />
+                      )}
+                    </div>
+                    <div style={{ minWidth:0 }}>
                     <div className="rpn">{dname}</div>
                     <div className="rpm">{pt} vs {ot} · {g.title} · {pr.label}</div>
+                    </div>
                   </div>
                   <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
                     <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:10, color:"#10b981", background:"rgba(16,185,129,.08)", border:"1px solid rgba(16,185,129,.22)", borderRadius:99, padding:"4px 12px" }}>
