@@ -2319,10 +2319,10 @@ export default function NBAPropsModel() {
                     const warnings = Object.entries(ptsByTeam).filter(([, v]) => v.allocated || (v.total >= 3 && v.overs / v.total >= 0.75));
                     if (!warnings.length) return null;
                     return (
-                      <div style={{ padding:"8px 14px", borderBottom:"1px solid rgba(245,158,11,.15)", background:"rgba(245,158,11,.05)" }}>
+                      <div style={{ padding:"6px 14px", borderBottom:"1px solid rgba(245,158,11,.12)", background:"rgba(245,158,11,.025)" }}>
                         {warnings.map(([team, v]) => (
-                          <div key={team} style={{ fontFamily:"'Azeret Mono',monospace", fontSize:0, color:"#f59e0b", marginBottom:2 }}>
-                            <span style={{ fontSize:11 }}>WARN {team} - {v.overs}/{v.total} raw pts OVER ({v.playableOvers} playable, {v.leanOvers} lean, {v.passOvers} pass){v.allocated ? ` - allocator trimmed ${v.trim.toFixed(1)} pts from weaker overs` : " - raw lean cluster only"}</span>
+                          <div key={team} style={{ fontFamily:"'Azeret Mono',monospace", fontSize:0, color:"#d97706", marginBottom:2 }}>
+                            <span style={{ fontSize:10 }}>WARN {team} - {v.overs}/{v.total} raw pts OVER ({v.playableOvers} playable, {v.leanOvers} lean, {v.passOvers} pass){v.allocated ? ` - allocator trimmed ${v.trim.toFixed(1)} pts from weaker overs` : " - raw lean cluster only"}</span>
                           </div>
                         ))}
                       </div>
@@ -2402,9 +2402,16 @@ export default function NBAPropsModel() {
                     const skipRanked = [...skip].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
                     const visibleSkip = skipRanked.slice(0, 12);
                     const topScore = best[0]?.betScore ?? watchRanked[0]?.betScore ?? 0;
+                    const rawPtClusters = {};
+                    bulkProjResults.filter(r => r.propId === "points").forEach(r => {
+                      if (!rawPtClusters[r.team]) rawPtClusters[r.team] = { overs: 0, total: 0 };
+                      rawPtClusters[r.team].total++;
+                      if (r.lean === "OVER") rawPtClusters[r.team].overs++;
+                    });
+                    const rawPtClusterCount = Object.values(rawPtClusters).filter(v => v.total >= 3 && v.overs / v.total >= 0.75).length;
                     return (
                       <div style={{ borderTop:"1px solid rgba(255,255,255,.06)" }}>
-                        <div style={{ padding:"12px 16px", display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))", gap:8, borderBottom:"1px solid rgba(255,255,255,.06)", background:"rgba(15,23,42,.28)" }}>
+                        <div style={{ padding:"10px 16px", display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))", gap:8, borderBottom:"1px solid rgba(255,255,255,.06)", background:"rgba(15,23,42,.22)" }}>
                           {[
                             ["PLAYABLE", best.length, "#3b82f6"],
                             ["BEST SCORE", topScore, topScore >= 70 ? "#10b981" : topScore >= 55 ? "#f59e0b" : "#64748b"],
@@ -2448,6 +2455,28 @@ export default function NBAPropsModel() {
                                 <BetCard key={i} r={r} propLabels={PROP_LABELS}
                                   onOpen={() => { selGame(gid); setPname(fmt(r.name)); setPkey(r.name); setShowBulk(false); }} />
                               ))}
+                              <div style={{ flex:"1 1 300px", minWidth:280, border:"1px solid rgba(59,130,246,.16)", borderRadius:10, background:"rgba(15,23,42,.36)", padding:"13px 14px", alignSelf:"stretch" }}>
+                                <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, letterSpacing:".18em", color:"#3b82f6", fontWeight:800, marginBottom:9 }}>
+                                  BOARD READ
+                                </div>
+                                <div style={{ color:"#cbd5e1", fontSize:12, lineHeight:1.65, marginBottom:10 }}>
+                                  {best.length === 1
+                                    ? "One prop cleared the full card. The rest are being held as watchlist/no-bet because the support is thinner than the raw edge."
+                                    : `${best.length} props cleared the full card. Use the score to size conviction, then open the prop for matchup details before betting.`}
+                                </div>
+                                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:8 }}>
+                                  {[
+                                    ["Top watch", watchRanked[0] ? `${fmt(watchRanked[0].name)} ${PROP_LABELS[watchRanked[0].propId]}` : "None", "#f59e0b"],
+                                    ["Main block", skipRanked[0]?.blockReason || "None", "#64748b"],
+                                    ["Raw pts clusters", rawPtClusterCount ? `${rawPtClusterCount} team${rawPtClusterCount !== 1 ? "s" : ""}` : "None", "#f59e0b"],
+                                  ].map(([label, value, color]) => (
+                                    <div key={label} style={{ border:"1px solid rgba(148,163,184,.10)", borderRadius:7, padding:"8px", background:"rgba(2,6,23,.26)" }}>
+                                      <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:8, letterSpacing:".12em", color:"#64748b", marginBottom:5 }}>{label}</div>
+                                      <div style={{ fontSize:11, color, fontWeight:800, lineHeight:1.35 }}>{value}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
                             </div>
                           </div>
                         )}

@@ -463,11 +463,14 @@ export const S = `
 
   /* ── BET CARDS — bulk winning props board ──────────────────────────── */
   .bet-cards-grid{
-    display:grid;
-    grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
+    display:flex;
+    flex-wrap:wrap;
+    align-items:stretch;
     gap:10px;
   }
   .bet-card{
+    flex:0 0 240px;
+    min-height:316px;
     background:rgba(8,15,30,0.80);
     border:1px solid;
     border-radius:12px;
