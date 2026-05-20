@@ -437,6 +437,65 @@ const BetCard = ({ r, propLabels, onOpen }) => {
 };
 
 // ── ConfidenceMeter — single-player projection band ───────────────────────────
+const PlayerShotChart = ({ chart, loading }) => {
+  if (loading) {
+    return (
+      <div className="shot-chart-card">
+        <div className="shot-chart-title">SHOT CHART</div>
+        <div style={{ color:"#64748b", fontSize:12 }}>Loading NBA.com shot locations...</div>
+      </div>
+    );
+  }
+  if (!chart?.shots?.length) return null;
+  const shots = chart.shots;
+  const made = chart.summary?.fgm ?? shots.filter(s => s.made).length;
+  const fga = chart.summary?.fga ?? shots.length;
+  const fgPct = chart.summary?.fgPct != null ? `${(chart.summary.fgPct * 100).toFixed(1)}%` : "n/a";
+  const toXY = (s) => {
+    const x = Math.max(16, Math.min(484, 250 + Number(s.x || 0)));
+    const y = Math.max(18, Math.min(430, 430 - Number(s.y || 0)));
+    return { x, y };
+  };
+  return (
+    <div className="shot-chart-card">
+      <div className="shot-chart-head">
+        <div>
+          <div className="shot-chart-title">SHOT CHART</div>
+          <div className="shot-chart-sub">{chart.seasonType} - NBA.com locations - last {shots.length} FGA</div>
+        </div>
+        <div className="shot-chart-summary">{made}/{fga} - {fgPct}</div>
+      </div>
+      <div className="shot-chart-body">
+        <svg className="shot-chart-svg" viewBox="0 0 500 450" role="img" aria-label="Player shot chart">
+          <rect x="0" y="0" width="500" height="450" rx="12" fill="#071122" />
+          <path d="M40 430 H460" stroke="#22304a" strokeWidth="2" />
+          <path d="M80 430 V250 H420 V430" stroke="#22304a" strokeWidth="2" fill="none" />
+          <path d="M170 430 V310 H330 V430" stroke="#22304a" strokeWidth="2" fill="none" />
+          <circle cx="250" cy="390" r="7" stroke="#22304a" strokeWidth="2" fill="none" />
+          <path d="M190 310 A60 60 0 0 0 310 310" stroke="#22304a" strokeWidth="2" fill="none" />
+          <path d="M30 430 V285 M470 430 V285" stroke="#22304a" strokeWidth="2" />
+          <path d="M30 285 A220 220 0 0 1 470 285" stroke="#22304a" strokeWidth="2" fill="none" />
+          <path d="M110 430 A140 140 0 0 1 390 430" stroke="#17243a" strokeWidth="1.5" fill="none" />
+          {shots.map((s, i) => {
+            const p = toXY(s);
+            const color = s.made ? "#10b981" : "#ef4444";
+            return <circle key={i} cx={p.x} cy={p.y} r={2.7} fill={color} opacity={s.made ? 0.86 : 0.52} />;
+          })}
+        </svg>
+        <div className="shot-zone-list">
+          {(chart.zones || []).slice(0, 5).map((z, i) => (
+            <div key={`${z.zone}-${i}`} className="shot-zone-row">
+              <span>{z.zone.replace(" Zone", "")}</span>
+              <b>{z.fgm}/{z.fga}</b>
+              <em>{z.fgPct != null ? `${(z.fgPct * 100).toFixed(0)}%` : "n/a"}</em>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const ConfidenceMeter = ({ proj, line, floor, ceiling, trustScore, source, std, n }) => {
   if (floor == null || ceiling == null) return null;
   const span     = Math.max(ceiling - floor, 1);
@@ -510,6 +569,8 @@ export default function NBAPropsModel() {
   const [ddOpen, setDdOpen] = useState(false);
   const [result, setResult] = useState(null);
   const [err, setErr] = useState(null);
+  const [shotChart, setShotChart] = useState(null);
+  const [shotChartLoading, setShotChartLoading] = useState(false);
   const [actualInput, setActualInput] = useState("");
   const [fetchedBox, setFetchedBox] = useState(null);
   const [fetchingBox, setFetchingBox] = useState(false);
@@ -533,6 +594,24 @@ export default function NBAPropsModel() {
   const [autoLogProgress, setAutoLogProgress] = useState({ done: 0, total: 0 });
   const [autoLogResult, setAutoLogResult] = useState(null);   // { logged, skipped, players }
   const ref = useRef(null);
+
+  useEffect(() => {
+    const pid = result?.player?.pid;
+    const propId = result?.prop?.id;
+    if (!pid || propId !== "points") {
+      setShotChart(null);
+      setShotChartLoading(false);
+      return;
+    }
+    let alive = true;
+    setShotChartLoading(true);
+    fetch(`${API_BASE}/shot-chart/${pid}`)
+      .then(r => r.json())
+      .then(d => { if (alive) setShotChart(d?.success ? d : null); })
+      .catch(() => { if (alive) setShotChart(null); })
+      .finally(() => { if (alive) setShotChartLoading(false); });
+    return () => { alive = false; };
+  }, [result?.player?.pid, result?.prop?.id]);
 
   // ── Residual learning — localStorage stores actual outcomes per player/prop ──
   // Enables the model to learn its systematic bias over time (no server needed).
@@ -2969,6 +3048,12 @@ export default function NBAPropsModel() {
                       {showAnalysis ? "HIDE DATA" : "MORE DATA"}
                     </button>
                   </div>
+
+                  {pr.id === "points" && (
+                    <div style={{ gridColumn:"1 / -1" }}>
+                      <PlayerShotChart chart={shotChart} loading={shotChartLoading} />
+                    </div>
+                  )}
 
                   <div style={{ display:"none" }}>
                     <AnalystList title="PROS" items={visiblePros} tone="#10b981" />

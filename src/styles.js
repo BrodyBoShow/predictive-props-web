@@ -526,4 +526,72 @@ export const S = `
     cursor:pointer;transition:background .1s;border-radius:4px;
   }
   .bet-watch-row:hover{background:rgba(245,158,11,.05);}
+
+  .shot-chart-card{
+    background:rgba(15,23,42,.46);
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:12px;
+    padding:12px;
+  }
+  .shot-chart-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:12px;
+    margin-bottom:10px;
+  }
+  .shot-chart-title{
+    font-family:'Azeret Mono',monospace;
+    font-size:9px;
+    letter-spacing:.2em;
+    color:#38bdf8;
+    font-weight:900;
+  }
+  .shot-chart-sub{
+    font-size:10px;
+    color:#64748b;
+    margin-top:3px;
+  }
+  .shot-chart-summary{
+    font-family:'Azeret Mono',monospace;
+    color:#e8f0ff;
+    font-size:12px;
+    font-weight:800;
+  }
+  .shot-chart-body{
+    display:grid;
+    grid-template-columns:minmax(260px,1fr) minmax(170px,.42fr);
+    gap:12px;
+    align-items:stretch;
+  }
+  .shot-chart-svg{
+    width:100%;
+    height:260px;
+    border-radius:10px;
+    border:1px solid rgba(148,163,184,.10);
+    background:#071122;
+  }
+  .shot-zone-list{
+    display:grid;
+    gap:6px;
+    align-content:start;
+  }
+  .shot-zone-row{
+    display:grid;
+    grid-template-columns:1fr auto auto;
+    gap:8px;
+    align-items:center;
+    background:rgba(2,6,23,.28);
+    border:1px solid rgba(148,163,184,.10);
+    border-radius:8px;
+    padding:8px 9px;
+    font-size:11px;
+    color:#94a3b8;
+  }
+  .shot-zone-row b{color:#e8f0ff;font-family:'Azeret Mono',monospace;font-size:10px;}
+  .shot-zone-row em{color:#10b981;font-style:normal;font-family:'Azeret Mono',monospace;font-size:10px;}
+  @media (max-width:720px){
+    .shot-chart-body{grid-template-columns:1fr;}
+    .shot-chart-svg{height:230px;}
+  }
 `;
