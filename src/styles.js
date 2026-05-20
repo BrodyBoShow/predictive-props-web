@@ -578,7 +578,7 @@ export const S = `
   }
   .shot-zone-row{
     display:grid;
-    grid-template-columns:1fr auto auto;
+    grid-template-columns:1fr auto auto auto;
     gap:8px;
     align-items:center;
     background:rgba(2,6,23,.28);
@@ -590,6 +590,7 @@ export const S = `
   }
   .shot-zone-row b{color:#e8f0ff;font-family:'Azeret Mono',monospace;font-size:10px;}
   .shot-zone-row em{color:#10b981;font-style:normal;font-family:'Azeret Mono',monospace;font-size:10px;}
+  .shot-zone-row strong{font-family:'Azeret Mono',monospace;font-size:9px;font-weight:800;text-align:right;}
   @media (max-width:720px){
     .shot-chart-body{grid-template-columns:1fr;}
     .shot-chart-svg{height:230px;}

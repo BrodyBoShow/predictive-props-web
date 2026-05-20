@@ -437,7 +437,7 @@ const BetCard = ({ r, propLabels, onOpen }) => {
 };
 
 // ── ConfidenceMeter — single-player projection band ───────────────────────────
-const PlayerShotChart = ({ chart, loading }) => {
+const PlayerShotChart = ({ chart, loading, defense, opponent }) => {
   if (loading) {
     return (
       <div className="shot-chart-card">
@@ -456,12 +456,31 @@ const PlayerShotChart = ({ chart, loading }) => {
     const y = Math.max(18, Math.min(430, 430 - Number(s.y || 0)));
     return { x, y };
   };
+  const zoneDefense = (zone = "", range = "") => {
+    const z = `${zone} ${range}`.toLowerCase();
+    let key = null;
+    if (z.includes("3")) key = "fg3";
+    else if (z.includes("restricted") || z.includes("less than 8") || z.includes("less than 10") || z.includes("paint")) key = "close";
+    else if (z.includes("mid") || z.includes("greater than 15")) key = "mid";
+    else if (z.includes("less than 6")) key = "rim";
+    const val = key === "fg3" ? defense?.fg3VsAvg
+      : key === "mid" ? defense?.midVsAvg
+      : key === "close" ? (defense?.closeVsAvg ?? defense?.rimVsAvg)
+      : key === "rim" ? defense?.rimVsAvg
+      : null;
+    if (val == null) return { label:"no def data", color:"#64748b", impact:null };
+    const pct = +(val * 100).toFixed(1);
+    if (pct >= 1.5) return { label:`soft +${pct}pp`, color:"#10b981", impact:val };
+    if (pct <= -1.5) return { label:`tough ${pct}pp`, color:"#ef4444", impact:val };
+    return { label:`neutral ${pct >= 0 ? "+" : ""}${pct}pp`, color:"#f59e0b", impact:val };
+  };
+  const zoneReads = (chart.zones || []).slice(0, 5).map(z => ({ ...z, defense: zoneDefense(z.zone, z.range) }));
   return (
     <div className="shot-chart-card">
       <div className="shot-chart-head">
         <div>
           <div className="shot-chart-title">SHOT CHART</div>
-          <div className="shot-chart-sub">{chart.seasonType} - NBA.com locations - last {shots.length} FGA</div>
+          <div className="shot-chart-sub">{chart.seasonType} - NBA.com locations - last {shots.length} FGA{opponent ? ` vs ${opponent} defense` : ""}</div>
         </div>
         <div className="shot-chart-summary">{made}/{fga} - {fgPct}</div>
       </div>
@@ -483,11 +502,12 @@ const PlayerShotChart = ({ chart, loading }) => {
           })}
         </svg>
         <div className="shot-zone-list">
-          {(chart.zones || []).slice(0, 5).map((z, i) => (
+          {zoneReads.map((z, i) => (
             <div key={`${z.zone}-${i}`} className="shot-zone-row">
               <span>{z.zone.replace(" Zone", "")}</span>
               <b>{z.fgm}/{z.fga}</b>
               <em>{z.fgPct != null ? `${(z.fgPct * 100).toFixed(0)}%` : "n/a"}</em>
+              <strong style={{ color:z.defense.color }}>{z.defense.label}</strong>
             </div>
           ))}
         </div>
@@ -3051,7 +3071,7 @@ export default function NBAPropsModel() {
 
                   {pr.id === "points" && (
                     <div style={{ gridColumn:"1 / -1" }}>
-                      <PlayerShotChart chart={shotChart} loading={shotChartLoading} />
+                      <PlayerShotChart chart={shotChart} loading={shotChartLoading} defense={teamDefense?.[ot]} opponent={ot} />
                     </div>
                   )}
 
