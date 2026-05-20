@@ -2402,6 +2402,14 @@ export default function NBAPropsModel() {
                     const skipRanked = [...skip].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
                     const visibleSkip = skipRanked.slice(0, 12);
                     const topScore = best[0]?.betScore ?? watchRanked[0]?.betScore ?? 0;
+                    const blockCounts = [...watchRanked, ...skipRanked].reduce((acc, r) => {
+                      const reason = r.blockReason || betBlockReason(r);
+                      acc[reason] = (acc[reason] || 0) + 1;
+                      return acc;
+                    }, {});
+                    const topBlocks = Object.entries(blockCounts)
+                      .sort((a, b) => b[1] - a[1])
+                      .slice(0, 3);
                     const rawPtClusters = {};
                     bulkProjResults.filter(r => r.propId === "points").forEach(r => {
                       if (!rawPtClusters[r.team]) rawPtClusters[r.team] = { overs: 0, total: 0 };
@@ -2464,6 +2472,15 @@ export default function NBAPropsModel() {
                                     ? "One prop cleared the full card. The rest are being held as watchlist/no-bet because the support is thinner than the raw edge."
                                     : `${best.length} props cleared the full card. Use the score to size conviction, then open the prop for matchup details before betting.`}
                                 </div>
+                                {topBlocks.length > 0 && (
+                                  <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:10 }}>
+                                    {topBlocks.map(([reason, count]) => (
+                                      <span key={reason} style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, color:"#94a3b8", border:"1px solid rgba(148,163,184,.14)", borderRadius:999, padding:"3px 7px", background:"rgba(15,23,42,.42)" }}>
+                                        {reason}: {count}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
                                 <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:8 }}>
                                   {[
                                     ["Top watch", watchRanked[0] ? `${fmt(watchRanked[0].name)} ${PROP_LABELS[watchRanked[0].propId]}` : "None", "#f59e0b"],
