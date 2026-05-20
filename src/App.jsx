@@ -2531,7 +2531,7 @@ export default function NBAPropsModel() {
                     const best  = [...locks, ...acts].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
                     const watchRanked = [...watch].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
                     const skipRanked = [...skip].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
-                    const visibleSkip = skipRanked.slice(0, 12);
+                    const visibleSkip = skipRanked;
                     const topScore = best[0]?.betScore ?? watchRanked[0]?.betScore ?? 0;
                     const blockCounts = [...watchRanked, ...skipRanked].reduce((acc, r) => {
                       const reason = r.blockReason || betBlockReason(r);
