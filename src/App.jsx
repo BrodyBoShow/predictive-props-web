@@ -305,6 +305,50 @@ const edgeTagsFor = (r) => {
   return tags.slice(0, 4);
 };
 
+const betQualityScore = (r) => {
+  const absEv = Math.abs(Number(r.ev || 0));
+  const sideProb = r.mcSideProb ?? null;
+  const trust = r.band?.trust_score ?? r.trustScore ?? null;
+  const cv = r.cv ?? r.band?.cv ?? null;
+  const line = Number(r.line || 0);
+  const q25 = r.q25 ?? r.band?.floor ?? null;
+  const q75 = r.q75 ?? r.band?.ceiling ?? null;
+  const isOver = r.lean === "OVER";
+  const clamp01 = v => Math.max(0, Math.min(1, v));
+  let score = 0;
+  score += clamp01((absEv - 4) / 16) * 34;
+  score += sideProb != null ? clamp01((sideProb - 0.52) / 0.16) * 24 : 8;
+  score += trust != null ? clamp01((trust - 40) / 45) * 18 : cv != null ? clamp01((0.48 - cv) / 0.26) * 18 : 7;
+  score += r.modelLift != null ? (r.modelLift < 0.10 ? 14 : r.modelLift < 0.18 ? 7 : r.modelLift < 0.25 ? 1 : -10) : 4;
+  if (line > 0) {
+    if (isOver) score += q25 == null ? 3 : q25 >= line ? 10 : q25 >= line * 0.90 ? 4 : -10;
+    else score += q75 == null ? 3 : q75 <= line ? 10 : q75 <= line * 1.10 ? 4 : -10;
+  }
+  if (r.corrStack) score += 5;
+  if (r.resourceAllocated) score -= 4;
+  if (r.sharedConflict || r.corrMixed) score -= 7;
+  if (r.driftDown) score -= 12;
+  if (r.grade === "LOCK") score += 6;
+  if (r.grade === "SKIP") score -= 10;
+  return Math.max(0, Math.min(100, Math.round(score)));
+};
+
+const betBlockReason = (r) => {
+  const absEv = Math.abs(Number(r.ev || 0));
+  const trust = r.band?.trust_score ?? r.trustScore ?? null;
+  const cv = r.cv ?? r.band?.cv ?? null;
+  const sideProb = r.mcSideProb ?? null;
+  if (r.grade === "LOCK" || r.grade === "ACTIONABLE") return r.grade === "LOCK" ? "Clean bet profile" : "Bettable edge";
+  if (absEv < 4) return "Edge too thin";
+  if (r.modelLift != null && r.modelLift >= 0.20) return "Model reach";
+  if (sideProb != null && sideProb < 0.585) return "Simulation weak";
+  if (trust != null && trust < 55) return "Trust low";
+  if (cv != null && cv >= 0.40) return "Volatile";
+  if (r.corrMixed) return "Mixed player signals";
+  if (r.resourceAllocated) return "Pool trimmed";
+  return "Needs cleaner support";
+};
+
 const BetCard = ({ r, propLabels, onOpen }) => {
   const isOver  = r.lean === "OVER";
   const ac      = isOver ? "#10b981" : "#ef4444";
@@ -313,12 +357,16 @@ const BetCard = ({ r, propLabels, onOpen }) => {
   const fmt     = n => n.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   const delta   = r.proj - r.line;
   const tags    = edgeTagsFor(r);
+  const score   = r.betScore ?? betQualityScore(r);
 
   return (
     <div className="bet-card" style={{ borderColor:`${gc}40` }} onClick={onOpen}>
       <div className="bet-card-stripe" style={{ background:`linear-gradient(90deg,${gc},${gc}55)` }} />
       <div className="bet-card-head">
         <span className="bet-card-grade" style={{ color:gc }} title={tier.help}>{tier.label}</span>
+        <span style={{ marginLeft:"auto", fontFamily:"'Azeret Mono',monospace", fontSize:9, color:score >= 70 ? "#10b981" : score >= 55 ? "#f59e0b" : "#64748b" }}>
+          SCORE {score}
+        </span>
         <span className="bet-card-player">{fmt(r.name)}</span>
         <span className="bet-card-sub">
           {r.team} · {propLabels[r.propId]}
@@ -1308,8 +1356,16 @@ export default function NBAPropsModel() {
       }
     });
 
+    results.forEach(r => {
+      r.betScore = betQualityScore(r);
+      r.blockReason = betBlockReason(r);
+    });
     const gradeOrder = { LOCK: 0, ACTIONABLE: 1, WATCH: 2, SKIP: 3 };
-    results.sort((a, b) => (gradeOrder[a.grade] - gradeOrder[b.grade]) || (Math.abs(b.ev) - Math.abs(a.ev)));
+    results.sort((a, b) =>
+      (gradeOrder[a.grade] - gradeOrder[b.grade]) ||
+      ((b.betScore ?? 0) - (a.betScore ?? 0)) ||
+      (Math.abs(b.ev) - Math.abs(a.ev))
+    );
     setBulkProjResults(results);
     setBulkRunning(false);
   }, [game, bulkRosterPlayers, bulkLines, bulkProps, effectiveDB, getResiduals, buildResidualCtx]);
@@ -2247,9 +2303,14 @@ export default function NBAPropsModel() {
                   {(() => {
                     const ptsByTeam = {};
                     bulkProjResults.filter(r => r.propId === "points").forEach(r => {
-                      if (!ptsByTeam[r.team]) ptsByTeam[r.team] = { overs: 0, total: 0, allocated: false, trim: 0 };
+                      if (!ptsByTeam[r.team]) ptsByTeam[r.team] = { overs: 0, playableOvers: 0, leanOvers: 0, passOvers: 0, total: 0, allocated: false, trim: 0 };
                       ptsByTeam[r.team].total++;
-                      if (r.lean === "OVER") ptsByTeam[r.team].overs++;
+                      if (r.lean === "OVER") {
+                        ptsByTeam[r.team].overs++;
+                        if (r.grade === "LOCK" || r.grade === "ACTIONABLE") ptsByTeam[r.team].playableOvers++;
+                        else if (r.grade === "WATCH") ptsByTeam[r.team].leanOvers++;
+                        else ptsByTeam[r.team].passOvers++;
+                      }
                       if (r.teamTotalAllocated) {
                         ptsByTeam[r.team].allocated = true;
                         ptsByTeam[r.team].trim += Number(r.teamTotalTrim || 0);
@@ -2260,9 +2321,8 @@ export default function NBAPropsModel() {
                     return (
                       <div style={{ padding:"8px 14px", borderBottom:"1px solid rgba(245,158,11,.15)", background:"rgba(245,158,11,.05)" }}>
                         {warnings.map(([team, v]) => (
-                          <div key={team} style={{ fontFamily:"'Azeret Mono',monospace", fontSize:11, color:"#f59e0b", marginBottom:2 }}>
-                            ⚠ {team} — {v.overs}/{v.total} pts props leaning OVER
-                            {v.allocated ? ` · team-total allocator trimmed ${v.trim.toFixed(1)} pts from weaker overs` : " · verify team totals"}
+                          <div key={team} style={{ fontFamily:"'Azeret Mono',monospace", fontSize:0, color:"#f59e0b", marginBottom:2 }}>
+                            <span style={{ fontSize:11 }}>WARN {team} - {v.overs}/{v.total} raw pts OVER ({v.playableOvers} playable, {v.leanOvers} lean, {v.passOvers} pass){v.allocated ? ` - allocator trimmed ${v.trim.toFixed(1)} pts from weaker overs` : " - raw lean cluster only"}</span>
                           </div>
                         ))}
                       </div>
@@ -2337,16 +2397,33 @@ export default function NBAPropsModel() {
                     const acts  = bulkProjResults.filter(r => r.grade === "ACTIONABLE");
                     const watch = bulkProjResults.filter(r => r.grade === "WATCH");
                     const skip  = bulkProjResults.filter(r => r.grade === "SKIP");
-                    const best  = [...locks, ...acts];
+                    const best  = [...locks, ...acts].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
+                    const watchRanked = [...watch].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
+                    const skipRanked = [...skip].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
+                    const visibleSkip = skipRanked.slice(0, 12);
+                    const topScore = best[0]?.betScore ?? watchRanked[0]?.betScore ?? 0;
                     return (
                       <div style={{ borderTop:"1px solid rgba(255,255,255,.06)" }}>
+                        <div style={{ padding:"12px 16px", display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))", gap:8, borderBottom:"1px solid rgba(255,255,255,.06)", background:"rgba(15,23,42,.28)" }}>
+                          {[
+                            ["PLAYABLE", best.length, "#3b82f6"],
+                            ["BEST SCORE", topScore, topScore >= 70 ? "#10b981" : topScore >= 55 ? "#f59e0b" : "#64748b"],
+                            ["WATCHLIST", watch.length, "#f59e0b"],
+                            ["NO-BET", skip.length, "#64748b"],
+                          ].map(([label, value, color]) => (
+                            <div key={label} style={{ border:"1px solid rgba(148,163,184,.12)", borderRadius:6, padding:"9px 10px", background:"rgba(15,23,42,.38)" }}>
+                              <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:8, letterSpacing:".18em", color:"#64748b", marginBottom:5 }}>{label}</div>
+                              <div style={{ fontFamily:"'Azeret Mono',monospace", fontSize:18, color, fontWeight:800 }}>{value}</div>
+                            </div>
+                          ))}
+                        </div>
 
                         {/* ── BEST BETS card grid (LOCK + ACTIONABLE) ── */}
                         {best.length > 0 && (
                           <div style={{ padding:"14px 16px 12px" }}>
                             <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
                               <span style={{ fontSize:9, fontWeight:800, letterSpacing:".22em", color:"#475569", fontFamily:"'Azeret Mono',monospace" }}>
-                                BETTING BOARD
+                                BETTING CARD
                               </span>
                               {locks.length > 0 && (
                                 <span style={{ fontSize:9, fontWeight:700, color:"#a855f7", fontFamily:"'Azeret Mono',monospace" }}>
@@ -2376,13 +2453,13 @@ export default function NBAPropsModel() {
                         )}
 
                         {/* ── WATCH — compact rows ── */}
-                        {watch.length > 0 && (
+                        {watchRanked.length > 0 && (
                           <div style={{ padding:"4px 16px 10px", borderTop:"1px solid rgba(245,158,11,.08)" }}>
-                            <div style={{ padding:"8px 0 5px", fontSize:9, fontWeight:800, letterSpacing:".18em",
-                              color:"#f59e0b", fontFamily:"'Azeret Mono',monospace" }}>
-                              LEANS — {watch.length}
+                            <div style={{ padding:"8px 0 5px", fontWeight:800, letterSpacing:".18em",
+                              color:"#f59e0b", fontFamily:"'Azeret Mono',monospace", fontSize:0 }}>
+                              <span style={{ fontSize:9 }}>EDGE WATCHLIST - {watch.length}</span>
                             </div>
-                            {watch.map((r, i) => {
+                            {watchRanked.map((r, i) => {
                               const isOver = r.lean === "OVER";
                               const ac = isOver ? "#10b981" : "#ef4444";
                               return (
@@ -2405,6 +2482,12 @@ export default function NBAPropsModel() {
                                   <span style={{ color:"#f59e0b", fontSize:10, fontWeight:700 }}>
                                     EV {r.ev >= 0 ? "+" : ""}{r.ev}%
                                   </span>
+                                  <span style={{ color:(r.betScore ?? 0) >= 55 ? "#f59e0b" : "#64748b", fontSize:9, marginLeft:10 }}>
+                                    SCORE {r.betScore ?? betQualityScore(r)}
+                                  </span>
+                                  <span style={{ color:"#94a3b8", fontSize:9, marginLeft:10 }}>
+                                    {r.blockReason || betBlockReason(r)}
+                                  </span>
                                   {edgeTagsFor(r).slice(0, 2).map((t, ti) => (
                                     <span key={ti} style={{ color:t.tone, fontSize:9, marginLeft:10 }}>
                                       {t.label}
@@ -2419,11 +2502,11 @@ export default function NBAPropsModel() {
                         {/* ── SKIP — compact rows ── */}
                         {skip.length > 0 && (
                           <div style={{ padding:"4px 16px 8px", borderTop:"1px solid rgba(71,85,105,.1)" }}>
-                            <div style={{ padding:"8px 0 5px", fontSize:9, fontWeight:800, letterSpacing:".18em",
-                              color:"#475569", fontFamily:"'Azeret Mono',monospace" }}>
-                              PASS — {skip.length}
+                            <div style={{ padding:"8px 0 5px", fontWeight:800, letterSpacing:".18em",
+                              color:"#475569", fontFamily:"'Azeret Mono',monospace", fontSize:0 }}>
+                              <span style={{ fontSize:9 }}>NO-BET ARCHIVE - {skip.length}{skip.length > visibleSkip.length ? ` (showing top ${visibleSkip.length})` : ""}</span>
                             </div>
-                            {skip.map((r, i) => {
+                            {visibleSkip.map((r, i) => {
                               const isOver = r.lean === "OVER";
                               const ac = isOver ? "#334155" : "#334155";
                               return (
@@ -2445,6 +2528,12 @@ export default function NBAPropsModel() {
                                   </span>
                                   <span style={{ color:"#334155", fontSize:10 }}>
                                     EV {r.ev >= 0 ? "+" : ""}{r.ev}%
+                                  </span>
+                                  <span style={{ color:"#475569", fontSize:9, marginLeft:10 }}>
+                                    SCORE {r.betScore ?? betQualityScore(r)}
+                                  </span>
+                                  <span style={{ color:"#64748b", fontSize:9, marginLeft:10 }}>
+                                    {r.blockReason || betBlockReason(r)}
                                   </span>
                                 </div>
                               );
