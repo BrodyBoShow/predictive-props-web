@@ -607,6 +607,7 @@ export default function NBAPropsModel() {
   const [bulkProjResults, setBulkProjResults] = useState([]);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
+  const [bulkSkipped, setBulkSkipped] = useState(null);   // { noPid: [], apiError: [], notSuccess: [] }
   const [bulkProps, setBulkProps] = useState(["points", "rebounds", "assists"]);
   const [bulkOddsLoading, setBulkOddsLoading] = useState(false);
   const [bulkOddsStatus, setBulkOddsStatus] = useState("");
@@ -1172,14 +1173,18 @@ export default function NBAPropsModel() {
     setBulkProgress({ done: 0, total: tasks.length });
     const recentCache = {};
     const results = [];
+    const skipReasons = { noPid: [], apiError: [], notSuccess: [] };
     for (const task of tasks) {
-      const dbEntry = effectiveDB[task.name];
-      const pid = dbEntry?.pid;
-      // Normalize via lookupPlayer (same as single-player) so the key is lowercase-normalized.
-      // This ensures player_name, prior_residuals localStorage key, and server lookup all match.
-      // e.g. livePlayerDB key "De'Aaron Fox" → lookupPlayer → "de'aaron fox" (matches residuals).
-      const playerKey = lookupPlayer(task.name, effectiveDB)?.key || task.name;
-      if (!pid) { setBulkProgress(p => ({ ...p, done: p.done + 1 })); continue; }
+      // Normalize via lookupPlayer FIRST — fixes "De'Aaron Fox" (roster casing) vs
+      // "de'aaron fox" (DB normalized) mismatch that was silently dropping players.
+      const lp = lookupPlayer(task.name, effectiveDB);
+      const playerKey = lp?.key || task.name;
+      const pid = lp?.pid ?? effectiveDB[task.name]?.pid ?? effectiveDB[playerKey]?.pid;
+      if (!pid) {
+        skipReasons.noPid.push(`${task.name} (${task.propId})`);
+        setBulkProgress(p => ({ ...p, done: p.done + 1 }));
+        continue;
+      }
       if (!recentCache[playerKey]) {
         try {
           const r = await fetch(`${API_BASE}/recent/${pid}`);
@@ -1264,10 +1269,19 @@ export default function NBAPropsModel() {
             pulledAt,
             driftDown,
           });
+        } else {
+          skipReasons.notSuccess.push(`${playerKey} (${task.propId}): ${data.error || "server returned success:false"}`);
         }
-      } catch {}
+      } catch (e) {
+        skipReasons.apiError.push(`${playerKey} (${task.propId}): ${e.message || "fetch failed"}`);
+      }
       setBulkProgress(p => ({ ...p, done: p.done + 1 }));
       await new Promise(r => setTimeout(r, 120));
+    }
+    const totalSkipped = skipReasons.noPid.length + skipReasons.apiError.length + skipReasons.notSuccess.length;
+    setBulkSkipped(totalSkipped > 0 ? skipReasons : null);
+    if (totalSkipped > 0) {
+      console.warn(`Bulk run skipped ${totalSkipped}/${tasks.length}:`, skipReasons);
     }
     // ── Shared-opportunity allocation ─────────────────────────────────────────
     // Guardrail, not a blanket nerf: only activates when entered props for the
@@ -2350,6 +2364,19 @@ export default function NBAPropsModel() {
                   {!bulkRunning && bulkProjResults.length > 0 && (
                     <span style={{ fontFamily:"'Azeret Mono',monospace", fontSize:9, color:"#475569" }}>
                       {bulkProjResults.length} results · {bulkProjResults.filter(r => r.grade === "LOCK").length} BEST · {bulkProjResults.filter(r => r.grade === "ACTIONABLE").length} PLAY
+                      {bulkSkipped && (() => {
+                        const n = (bulkSkipped.noPid?.length || 0) + (bulkSkipped.apiError?.length || 0) + (bulkSkipped.notSuccess?.length || 0);
+                        const detail = [
+                          ...(bulkSkipped.noPid || []).map(s => `• no PID: ${s}`),
+                          ...(bulkSkipped.notSuccess || []).map(s => `• server: ${s}`),
+                          ...(bulkSkipped.apiError || []).map(s => `• fetch: ${s}`),
+                        ].join("\n");
+                        return (
+                          <span title={detail} style={{ marginLeft:8, color:"#ef4444", cursor:"help" }}>
+                            · ⚠ {n} skipped (hover)
+                          </span>
+                        );
+                      })()}
                     </span>
                   )}
                   {bulkProjResults.length > 0 && (
