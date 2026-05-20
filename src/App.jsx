@@ -460,7 +460,8 @@ const PlayerShotChart = ({ chart, loading, defense, opponent }) => {
     const z = `${zone} ${range}`.toLowerCase();
     let key = null;
     if (z.includes("3")) key = "fg3";
-    else if (z.includes("restricted") || z.includes("less than 8") || z.includes("less than 10") || z.includes("paint")) key = "close";
+    else if (z.includes("restricted")) key = "rim";
+    else if (z.includes("less than 8") || z.includes("less than 10") || z.includes("paint")) key = "close";
     else if (z.includes("mid") || z.includes("greater than 15")) key = "mid";
     else if (z.includes("less than 6")) key = "rim";
     const val = key === "fg3" ? defense?.fg3VsAvg
