@@ -2366,14 +2366,18 @@ export default function NBAPropsModel() {
                       {bulkProjResults.length} results · {bulkProjResults.filter(r => r.grade === "LOCK").length} BEST · {bulkProjResults.filter(r => r.grade === "ACTIONABLE").length} PLAY
                       {bulkSkipped && (() => {
                         const n = (bulkSkipped.noPid?.length || 0) + (bulkSkipped.apiError?.length || 0) + (bulkSkipped.notSuccess?.length || 0);
-                        const detail = [
-                          ...(bulkSkipped.noPid || []).map(s => `• no PID: ${s}`),
-                          ...(bulkSkipped.notSuccess || []).map(s => `• server: ${s}`),
-                          ...(bulkSkipped.apiError || []).map(s => `• fetch: ${s}`),
-                        ].join("\n");
                         return (
-                          <span title={detail} style={{ marginLeft:8, color:"#ef4444", cursor:"help" }}>
-                            · ⚠ {n} skipped (hover)
+                          <span style={{ marginLeft:8, color:"#ef4444", cursor:"pointer" }}
+                                onClick={() => {
+                                  const lines = [
+                                    `=== ${n} props skipped ===`,
+                                    ...(bulkSkipped.noPid?.length ? ["", `No PID resolved (${bulkSkipped.noPid.length}):`, ...bulkSkipped.noPid.map(s => `  • ${s}`)] : []),
+                                    ...(bulkSkipped.notSuccess?.length ? ["", `Server returned success:false (${bulkSkipped.notSuccess.length}):`, ...bulkSkipped.notSuccess.map(s => `  • ${s}`)] : []),
+                                    ...(bulkSkipped.apiError?.length ? ["", `Network/parse error (${bulkSkipped.apiError.length}):`, ...bulkSkipped.apiError.map(s => `  • ${s}`)] : []),
+                                  ];
+                                  alert(lines.join("\n"));
+                                }}>
+                            · ⚠ {n} skipped (click)
                           </span>
                         );
                       })()}
