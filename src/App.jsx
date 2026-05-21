@@ -270,12 +270,31 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
     }
   }
 
-  // Damp the combined multiplier deviation by 40% to prevent compounding inflation.
-  // Each adjustment is sound in isolation but stacking them multiplicatively
-  // over-amplifies correlated signals (pace + defense + rest all push same direction).
-  const rawMultiplier = paceAdj * defAdj * homeAdj * restAdj * onOffAdj * tsAdj * fg3DefAdj * clutchAdj * injAdj * vsOppAdj * matchupDeltaAdj * astConvAdj;
-  const dampedMultiplier = 1 + (rawMultiplier - 1) * 0.60;
-  const adjustedProjection = +(blended * dampedMultiplier).toFixed(1);
+  // ── Hybrid multiplier (audit fix #4) ─────────────────────────────────────────
+  // Volume factors (Pace, Defense, Injury, Matchup Delta, FG3 def) are TRUE
+  // multipliers — they scale the underlying opportunity. Efficiency factors
+  // (Home, Rest, On/Off, TS%, Clutch, vs-Opp history, AstConv) are ADDITIVE
+  // shifts — stacking them multiplicatively over-amplified correlated signals
+  // (e.g., +Home + Rest + WOWY + TS all pushing same direction compounded to
+  // +12% before damping, guaranteeing false LOCK flags).
+  const volumeMult =
+    paceAdj * defAdj * injAdj * matchupDeltaAdj * fg3DefAdj;
+  const efficiencyShift =
+    (homeAdj    - 1) +
+    (restAdj    - 1) +
+    (onOffAdj   - 1) +
+    (tsAdj      - 1) +
+    (clutchAdj  - 1) +
+    (vsOppAdj   - 1) +
+    (astConvAdj - 1);
+  // Cap efficiency stack at ±12% before damping (no single multiplier alone
+  // can exceed ~5%, so this only bites when 3+ factors align in same direction)
+  const cappedEffShift = Math.max(-0.12, Math.min(0.12, efficiencyShift));
+  const rawAdjusted = blended * volumeMult * (1 + cappedEffShift);
+  // Final ±25% total-swing cap with 0.75 damping factor on the delta
+  const rawDeltaPct = blended > 0 ? (rawAdjusted - blended) / blended : 0;
+  const dampedDelta = Math.max(-0.25, Math.min(0.25, rawDeltaPct * 0.75));
+  const adjustedProjection = +(blended * (1 + dampedDelta)).toFixed(1);
   return { propRS, propPO, propRecent, propVsOpp, blended, gamePace, paceAdj, defAdj, homeAdj, restAdj, onOffAdj, tsAdj, fg3DefAdj, clutchAdj, injAdj, vsOppAdj, matchupDeltaAdj, astConvAdj, isHome, restDays, adjustedProjection };
 }
 
