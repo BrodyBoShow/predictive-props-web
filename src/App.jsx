@@ -1314,7 +1314,11 @@ export default function NBAPropsModel() {
     // same team/stat pool materially exceed the market-implied opportunity pool.
     // Strong matchup/EV plays are protected; weaker overs absorb most trims.
     const POOL_CFG = {
-      points:               { minRows: 3, lift: 1.08, label: "points pool", useTeamImplied: true },
+      // Tightened from 1.08 → 1.03 — observed all-OVER bulk runs were slipping
+      // through because the old threshold allowed 8% of total team-points
+      // over-projection before any trimming kicked in. Now any team-points
+      // pool exceeding implied total + 3% gets trimmed.
+      points:               { minRows: 3, lift: 1.03, label: "points pool", useTeamImplied: true },
       assists:              { minRows: 2, lift: 1.10, label: "assist pool", env: 0.20 },
       rebounds:             { minRows: 2, lift: 1.10, label: "rebound pool", env: 0.08 },
       three_pointers:       { minRows: 2, lift: 1.10, label: "3PM pool", env: 0.18 },
@@ -1373,7 +1377,9 @@ export default function NBAPropsModel() {
       if (Number.isFinite(implied) && implied > 0) {
         const envBoost = clamp(((implied - 114) / 114) * (cfg.env ?? 0), -0.035, 0.06);
         allowance = enteredLineSum * (cfg.lift + envBoost);
-        if (cfg.useTeamImplied) allowance = Math.max(allowance, implied * 0.94);
+        // For team-implied props (points), cap the allowance at implied total
+        // exactly (was implied * 0.94, which let the pool exceed truth by 6%).
+        if (cfg.useTeamImplied) allowance = Math.min(allowance, implied);
       }
       const excess = projectedSum - allowance;
       if (excess <= Math.max(0.65, enteredLineSum * 0.025)) return;
