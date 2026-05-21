@@ -262,11 +262,18 @@ function computeProjection(prop, player, playerTeam, oppTeam, isHome, restDays, 
     const convRate = tracking.astConvRate ?? LEAGUE_AVG_AST_CONV;
     const deviation = Math.abs(convRate - LEAGUE_AVG_AST_CONV) / LEAGUE_AVG_AST_CONV;
     if (deviation > 0.15 && tracking.ast > 0) {
-      // Mean-regression: what would they convert at the sustainable baseline?
-      const meanAst  = tracking.potentialAst * LEAGUE_AVG_AST_CONV;
-      const regressedAst = tracking.ast * 0.70 + meanAst * 0.30; // 30% regression weight
-      const rawAdj   = regressedAst / tracking.ast;
-      astConvAdj = +Math.max(0.90, Math.min(1.10, rawAdj)).toFixed(4);
+      // Mean-regression — but ONLY downward (correct unsustainably HIGH conversion).
+      // Residual data showed +60% under-projection on assists, primarily because
+      // we were regressing elite passers (Murray/Trae/Jokic) DOWN to league mean
+      // when they convert above mean for a real, structural reason. Now we only
+      // apply astConvAdj when convRate is meaningfully ABOVE the mean (i.e., the
+      // player is converting unsustainably hot), not when they're elite-stable.
+      if (convRate > LEAGUE_AVG_AST_CONV * 1.25) {
+        const meanAst  = tracking.potentialAst * LEAGUE_AVG_AST_CONV;
+        const regressedAst = tracking.ast * 0.80 + meanAst * 0.20; // weaker regression
+        const rawAdj   = regressedAst / tracking.ast;
+        astConvAdj = +Math.max(0.92, Math.min(1.0, rawAdj)).toFixed(4); // downward only
+      }
     }
   }
 
