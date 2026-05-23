@@ -1419,6 +1419,48 @@ export default function NBAPropsModel() {
         if (cfg.useTeamImplied) allowance = Math.min(allowance, implied * 1.12);
       }
       const excess = projectedSum - allowance;
+
+      // ── Symmetric allocator: BOOST under-projected pools too ───────────────
+      // Previously only trimmed when projectedSum > allowance. But if the model
+      // projects 95 total team points when books have lines summing to 115,
+      // every player leans UNDER unjustifiably — model bias, not real signal.
+      // When pool sums to LESS than `floor` (player-line-sum × 0.92), boost
+      // the most defensible UNDER projections (those least supported by sim
+      // or with weak edges) UP toward the line.
+      const floor = enteredLineSum * 0.95;   // pool shouldn't sum below 95% of line sum
+      if (rows[0].propId === "points" && projectedSum < floor && excess < 0) {
+        const deficit = floor - projectedSum;
+        const underRows = rows
+          .filter(r => r.lean === "UNDER" && r.proj < r.line)
+          .map(r => {
+            const edgePts = Math.max(0, r.line - r.proj);
+            // Prefer to lift UNDERs with WEAK conviction first
+            // (low absEv, low mcSideProb, weak grade)
+            const conviction = Math.abs(Number(r.ev || 0)) / 18
+                              + (r.mcSideProb ? Math.max(0, r.mcSideProb - 0.52) * 4 : 0)
+                              + (r.grade === "LOCK" ? 2.0 : r.grade === "ACTIONABLE" ? 1.0 : 0);
+            return { r, edgePts, boostWeight: 1 / Math.pow(1 + conviction, 1.5) };
+          })
+          .filter(x => x.edgePts > 0.05);
+        if (underRows.length) {
+          const totalW = underRows.reduce((s, x) => s + x.boostWeight, 0);
+          let remaining = deficit;
+          underRows.forEach(x => {
+            const desired = remaining * (x.boostWeight / totalW);
+            const maxLift = x.edgePts * 0.70;  // never lift past 70% of edge
+            const lift = Math.min(desired, maxLift);
+            if (lift > 0) {
+              x.r.originalProj = x.r.originalProj ?? x.r.proj;
+              x.r.poolBoosted = true;
+              x.r.proj = +(x.r.proj + lift).toFixed(1);
+              x.r.poolProjectedBefore = +projectedSum.toFixed(1);
+              x.r.poolFloor = +floor.toFixed(1);
+              recalcAfterAllocation(x.r);
+            }
+          });
+        }
+      }
+
       if (excess <= Math.max(0.65, enteredLineSum * 0.025)) return;
 
       const overRows = rows
