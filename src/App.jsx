@@ -1873,10 +1873,25 @@ export default function NBAPropsModel() {
       const b = 10 / 11;
       const kelly = Math.max(0, (b * p - (1 - p)) / b);
       const qKellyPct = kelly * 0.25 * 100;   // quarter-Kelly, in % of bankroll
-      if (qKellyPct >= 2.0)       tier = "LOCK";
-      else if (qKellyPct >= 0.8)  tier = "ACTIONABLE";
-      else if (qKellyPct >= 0.2)  tier = "WATCH";
+      // Tightened thresholds — 10/45 BEST BETs was too generous. New mapping:
+      //   ≥ 3.5%  → LOCK (MC p ≥ ~0.60, strong signal)
+      //   1.2–3.5%→ ACTIONABLE
+      //   0.3–1.2%→ WATCH
+      //   < 0.3%  → SKIP
+      if (qKellyPct >= 3.5)       tier = "LOCK";
+      else if (qKellyPct >= 1.2)  tier = "ACTIONABLE";
+      else if (qKellyPct >= 0.3)  tier = "WATCH";
       else                        tier = "SKIP";
+
+      // Low-line guardrail — small absolute edges on small lines inflate to
+      // huge EV% but variance can easily swallow them (the Alvarado 2.5→5.3
+      // pattern). Require minimum 1.5pt absolute spread for LOCK and 1.0pt
+      // for ACTIONABLE when line < 6.
+      if (line < 6 && line > 0) {
+        const absSpread = Math.abs(projection - line);
+        if (tier === "LOCK" && absSpread < 1.5)         tier = "ACTIONABLE";
+        if (tier === "ACTIONABLE" && absSpread < 1.0)   tier = "WATCH";
+      }
     } else {
       // Fallback when MC didn't run — use legacy EV thresholds with safety nets
       const trustOk   = trustScore != null ? trustScore >= 70 : (cv != null && cv < 0.30);
