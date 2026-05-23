@@ -2638,7 +2638,17 @@ export default function NBAPropsModel() {
                     const acts  = bulkProjResults.filter(r => r.grade === "ACTIONABLE");
                     const watch = bulkProjResults.filter(r => r.grade === "WATCH");
                     const skip  = bulkProjResults.filter(r => r.grade === "SKIP");
-                    const best  = [...locks, ...acts].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
+                    // Cap BEST BETS at top 5 by betScore — demote extras to ACTIONABLE
+                    // so the BEST BET section stays focused on the genuine top tier.
+                    const MAX_LOCKS = 5;
+                    const locksRanked = [...locks].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
+                    const lockKeep    = locksRanked.slice(0, MAX_LOCKS);
+                    const lockDemote  = locksRanked.slice(MAX_LOCKS);
+                    lockDemote.forEach(r => { r.grade = "ACTIONABLE"; r.lockCapDemoted = true; });
+                    const actsAll = [...acts, ...lockDemote];
+                    const actsRanked = actsAll.sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
+                    // Group LOCK first then ACTIONABLE, sorted by betScore within each tier
+                    const best = [...lockKeep, ...actsRanked];
                     const watchRanked = [...watch].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
                     const skipRanked = [...skip].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
                     const visibleSkip = skipRanked;
@@ -2681,14 +2691,14 @@ export default function NBAPropsModel() {
                               <span style={{ fontSize:9, fontWeight:800, letterSpacing:".22em", color:"#475569", fontFamily:"'Azeret Mono',monospace" }}>
                                 BETTING CARD
                               </span>
-                              {locks.length > 0 && (
+                              {lockKeep.length > 0 && (
                                 <span style={{ fontSize:9, fontWeight:700, color:"#a855f7", fontFamily:"'Azeret Mono',monospace" }}>
-                                  ● {locks.length} BEST BET
+                                  ● {lockKeep.length} BEST BET
                                 </span>
                               )}
-                              {acts.length > 0 && (
+                              {actsRanked.length > 0 && (
                                 <span style={{ fontSize:9, fontWeight:700, color:"#3b82f6", fontFamily:"'Azeret Mono',monospace" }}>
-                                  ● {acts.length} PLAY
+                                  ● {actsRanked.length} PLAY
                                 </span>
                               )}
                             </div>
@@ -2699,7 +2709,40 @@ export default function NBAPropsModel() {
                               <span><b style={{ color:"#f59e0b" }}>LEAN</b> edge with a weak filter</span>
                               <span><b style={{ color:"#64748b" }}>PASS</b> no play</span>
                             </div>
-                            <div className="bet-cards-grid">
+                            {/* BEST BET section — its own grid so it doesn't visually blend with PLAY */}
+                            {lockKeep.length > 0 && (
+                              <>
+                                <div style={{ fontSize:9, fontWeight:800, letterSpacing:".22em",
+                                  color:"#a855f7", fontFamily:"'Azeret Mono',monospace",
+                                  margin:"6px 0 6px", borderTop:"1px solid rgba(168,85,247,.2)", paddingTop:8 }}>
+                                  BEST BET — TOP {lockKeep.length}
+                                </div>
+                                <div className="bet-cards-grid">
+                                  {lockKeep.map((r, i) => (
+                                    <BetCard key={`L${i}`} r={r} propLabels={PROP_LABELS}
+                                      onOpen={() => { selGame(gid); setPname(fmt(r.name)); setPkey(r.name); setShowBulk(false); }} />
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                            {/* PLAY section — separate grid below BEST BETS */}
+                            {actsRanked.length > 0 && (
+                              <>
+                                <div style={{ fontSize:9, fontWeight:800, letterSpacing:".22em",
+                                  color:"#3b82f6", fontFamily:"'Azeret Mono',monospace",
+                                  margin:"14px 0 6px", borderTop:"1px solid rgba(59,130,246,.2)", paddingTop:8 }}>
+                                  PLAY — {actsRanked.length}
+                                </div>
+                                <div className="bet-cards-grid">
+                                  {actsRanked.map((r, i) => (
+                                    <BetCard key={`A${i}`} r={r} propLabels={PROP_LABELS}
+                                      onOpen={() => { selGame(gid); setPname(fmt(r.name)); setPkey(r.name); setShowBulk(false); }} />
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                            {/* Legacy single-grid render — kept commented for reference */}
+                            <div className="bet-cards-grid" style={{ display:"none" }}>
                               {best.map((r, i) => (
                                 <BetCard key={i} r={r} propLabels={PROP_LABELS}
                                   onOpen={() => { selGame(gid); setPname(fmt(r.name)); setPkey(r.name); setShowBulk(false); }} />
