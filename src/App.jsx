@@ -1900,12 +1900,14 @@ export default function NBAPropsModel() {
         const trust = trustScore;
         const cvVal = cv;
         // Required for LOCK:
-        //   (1) MC win probability ≥ 0.60         (strong simulation confidence)
-        //   (2) Sample size ≥ 5 playoff games     (statistical relevance)
-        //   (3) Model lift < 0.15                 (not reaching beyond baseline)
-        //   (4) NOT volatile  (cv < 0.40 OR trust ≥ 65)  (signal stability)
-        //   (5) Floor doesn't collapse (q25 ≥ line·0.92 over / q75 ≤ line·1.08 under)
-        //   (6) NOT driftDown                     (not over-projecting recently)
+        //   (1) Absolute EV ≥ 8%                  (real edge, not just narrow MC confidence)
+        //   (2) MC win probability ≥ 0.60         (strong simulation confidence)
+        //   (3) Sample size ≥ 5 playoff games     (statistical relevance)
+        //   (4) Model lift < 0.15                 (not reaching beyond baseline)
+        //   (5) NOT volatile  (cv < 0.40 OR trust ≥ 65)  (signal stability)
+        //   (6) Floor doesn't collapse (q25 ≥ line·0.92 over / q75 ≤ line·1.08 under)
+        //   (7) NOT driftDown                     (not over-projecting recently)
+        const evClean    = absEv >= 8;
         const mcStrong   = mcProb >= 0.60;
         const sampleOk   = (poGp || 0) >= 5;
         const liftClean  = modelLift < 0.15;
@@ -1916,7 +1918,7 @@ export default function NBAPropsModel() {
             ? (q25 == null || q25 >= line * 0.92)
             : (q75 == null || q75 <= line * 1.08);
         const driftClean = !driftDown;
-        if (!(mcStrong && sampleOk && liftClean && notVolatile && floorClean && driftClean)) {
+        if (!(evClean && mcStrong && sampleOk && liftClean && notVolatile && floorClean && driftClean)) {
           tier = "ACTIONABLE";
         }
       }
@@ -2666,12 +2668,16 @@ export default function NBAPropsModel() {
                     const acts  = bulkProjResults.filter(r => r.grade === "ACTIONABLE");
                     const watch = bulkProjResults.filter(r => r.grade === "WATCH");
                     const skip  = bulkProjResults.filter(r => r.grade === "SKIP");
-                    // BEST BETs already passed the hard quality gate in computeGrade
-                    // (mcProb ≥ 0.60, sampleOk, liftClean, notVolatile, floorClean,
-                    // driftClean). No artificial cap — the count reflects how many
-                    // genuinely clean plays exist on this slate. Could be 0, 1, or 8.
-                    const lockKeep   = [...locks].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
-                    const actsRanked = [...acts].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
+                    // BEST BETs already passed the hard quality gate in computeGrade.
+                    // Final post-pass: also require betScore ≥ 65. A LOCK with low
+                    // composite score (SCORE 42, 56 etc.) is signal-thin even if
+                    // individual gates passed — demote those to ACTIONABLE.
+                    const MIN_LOCK_SCORE = 65;
+                    const lockCandidates = [...locks].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
+                    const lockKeep   = lockCandidates.filter(r => (r.betScore ?? 0) >= MIN_LOCK_SCORE);
+                    const lockDemote = lockCandidates.filter(r => (r.betScore ?? 0) <  MIN_LOCK_SCORE);
+                    lockDemote.forEach(r => { r.grade = "ACTIONABLE"; r.lockScoreDemoted = true; });
+                    const actsRanked = [...acts, ...lockDemote].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
                     // Group LOCK first then ACTIONABLE for the unified view
                     const best = [...lockKeep, ...actsRanked];
                     const watchRanked = [...watch].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
