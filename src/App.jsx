@@ -1873,24 +1873,50 @@ export default function NBAPropsModel() {
       const b = 10 / 11;
       const kelly = Math.max(0, (b * p - (1 - p)) / b);
       const qKellyPct = kelly * 0.25 * 100;   // quarter-Kelly, in % of bankroll
-      // Tightened thresholds — 10/45 BEST BETs was too generous. New mapping:
-      //   ≥ 3.5%  → LOCK (MC p ≥ ~0.60, strong signal)
-      //   1.2–3.5%→ ACTIONABLE
-      //   0.3–1.2%→ WATCH
-      //   < 0.3%  → SKIP
+
+      // Provisional tier from Kelly size alone
       if (qKellyPct >= 3.5)       tier = "LOCK";
       else if (qKellyPct >= 1.2)  tier = "ACTIONABLE";
       else if (qKellyPct >= 0.3)  tier = "WATCH";
       else                        tier = "SKIP";
 
       // Low-line guardrail — small absolute edges on small lines inflate to
-      // huge EV% but variance can easily swallow them (the Alvarado 2.5→5.3
-      // pattern). Require minimum 1.5pt absolute spread for LOCK and 1.0pt
-      // for ACTIONABLE when line < 6.
+      // huge EV% but variance can easily swallow them. Require min 1.5pt
+      // spread for LOCK and 1.0pt for ACTIONABLE when line < 6.
       if (line < 6 && line > 0) {
         const absSpread = Math.abs(projection - line);
         if (tier === "LOCK" && absSpread < 1.5)         tier = "ACTIONABLE";
         if (tier === "ACTIONABLE" && absSpread < 1.0)   tier = "WATCH";
+      }
+
+      // ── HARD QUALITY GATE for LOCK (BEST BET) ─────────────────────────────
+      // A LOCK must be a *clean* play across multiple signals, not just a
+      // high Kelly number. Any single failed gate → demote to ACTIONABLE.
+      // This is the "actual play" filter: BEST BET means we'd staking real
+      // money on it, not just "passes one threshold".
+      if (tier === "LOCK") {
+        const trust = trustScore;
+        const cvVal = cv;
+        // Required for LOCK:
+        //   (1) MC win probability ≥ 0.60         (strong simulation confidence)
+        //   (2) Sample size ≥ 5 playoff games     (statistical relevance)
+        //   (3) Model lift < 0.15                 (not reaching beyond baseline)
+        //   (4) NOT volatile  (cv < 0.40 OR trust ≥ 65)  (signal stability)
+        //   (5) Floor doesn't collapse (q25 ≥ line·0.92 over / q75 ≤ line·1.08 under)
+        //   (6) NOT driftDown                     (not over-projecting recently)
+        const mcStrong   = mcProb >= 0.60;
+        const sampleOk   = (poGp || 0) >= 5;
+        const liftClean  = modelLift < 0.15;
+        const notVolatile = (cvVal == null || cvVal < 0.40) || (trust != null && trust >= 65);
+        const floorClean = line == null || line <= 0
+          ? true
+          : isOver
+            ? (q25 == null || q25 >= line * 0.92)
+            : (q75 == null || q75 <= line * 1.08);
+        const driftClean = !driftDown;
+        if (!(mcStrong && sampleOk && liftClean && notVolatile && floorClean && driftClean)) {
+          tier = "ACTIONABLE";
+        }
       }
     } else {
       // Fallback when MC didn't run — use legacy EV thresholds with safety nets
@@ -2638,16 +2664,13 @@ export default function NBAPropsModel() {
                     const acts  = bulkProjResults.filter(r => r.grade === "ACTIONABLE");
                     const watch = bulkProjResults.filter(r => r.grade === "WATCH");
                     const skip  = bulkProjResults.filter(r => r.grade === "SKIP");
-                    // Cap BEST BETS at top 5 by betScore — demote extras to ACTIONABLE
-                    // so the BEST BET section stays focused on the genuine top tier.
-                    const MAX_LOCKS = 5;
-                    const locksRanked = [...locks].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
-                    const lockKeep    = locksRanked.slice(0, MAX_LOCKS);
-                    const lockDemote  = locksRanked.slice(MAX_LOCKS);
-                    lockDemote.forEach(r => { r.grade = "ACTIONABLE"; r.lockCapDemoted = true; });
-                    const actsAll = [...acts, ...lockDemote];
-                    const actsRanked = actsAll.sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
-                    // Group LOCK first then ACTIONABLE, sorted by betScore within each tier
+                    // BEST BETs already passed the hard quality gate in computeGrade
+                    // (mcProb ≥ 0.60, sampleOk, liftClean, notVolatile, floorClean,
+                    // driftClean). No artificial cap — the count reflects how many
+                    // genuinely clean plays exist on this slate. Could be 0, 1, or 8.
+                    const lockKeep   = [...locks].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
+                    const actsRanked = [...acts].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
+                    // Group LOCK first then ACTIONABLE for the unified view
                     const best = [...lockKeep, ...actsRanked];
                     const watchRanked = [...watch].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
                     const skipRanked = [...skip].sort((a, b) => (b.betScore ?? 0) - (a.betScore ?? 0));
