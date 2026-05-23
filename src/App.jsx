@@ -1279,10 +1279,32 @@ export default function NBAPropsModel() {
             return +(k * 0.25 * 100).toFixed(1);
           })();
           const pulledAt = bulkLinePulledAt[task.name]?.[task.propId] ?? null;
+          // ── Quantile-gated lean (residual data showed UNDER leans on role
+          // players blew up by +120–300% when upside tail was wide). Refuse to
+          // lean UNDER when q75 says the player can easily clear the line.
+          // Refuse to lean OVER when q25 says the floor sits well below.
+          const _qLean = (() => {
+            const proj_above = proj > task.line;
+            const proj_below = proj < task.line;
+            if (q25 == null || q75 == null) {
+              return proj_above ? "OVER" : proj_below ? "UNDER" : "HOLD";
+            }
+            const upsideClear  = q75 > task.line * 1.10;   // wide upside tail
+            const downsideClear = q25 < task.line * 0.90;  // wide downside tail
+            if (proj_above) {
+              return downsideClear ? "PASS" : "OVER";
+            }
+            if (proj_below) {
+              return upsideClear ? "PASS" : "UNDER";
+            }
+            return "HOLD";
+          })();
+          // If quantiles flagged this as PASS, force grade to SKIP regardless of EV%
+          const _finalGrade = (_qLean === "PASS" || _qLean === "HOLD") ? "SKIP" : grade;
           results.push({
             name: playerKey, team: task.team, propId: task.propId, line: task.line,
-            proj, base, ev, cv, grade, poGp, modelLift,
-            lean: proj > task.line ? "OVER" : "UNDER",
+            proj, base, ev, cv, grade: _finalGrade, poGp, modelLift,
+            lean: _qLean,
             band: data.confidence_band ?? null,
             gameCtx: data.game_context ?? null,
             monteCarlo: mc,
@@ -1333,7 +1355,26 @@ export default function NBAPropsModel() {
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     const recalcAfterAllocation = (r) => {
       r.ev = +((r.proj / r.line - 1) * 100).toFixed(2);
-      r.lean = r.proj > r.line ? "OVER" : "UNDER";
+      // Re-apply quantile-gated lean after pool trim (proj may have moved)
+      const projAbove = r.proj > r.line;
+      const projBelow = r.proj < r.line;
+      if (r.q25 != null && r.q75 != null) {
+        const upsideClear   = r.q75 > r.line * 1.10;
+        const downsideClear = r.q25 < r.line * 0.90;
+        if (projAbove)      r.lean = downsideClear ? "PASS" : "OVER";
+        else if (projBelow) r.lean = upsideClear   ? "PASS" : "UNDER";
+        else                r.lean = "HOLD";
+      } else {
+        r.lean = projAbove ? "OVER" : projBelow ? "UNDER" : "HOLD";
+      }
+      // If quantile gate flagged PASS/HOLD, force SKIP grade
+      if (r.lean === "PASS" || r.lean === "HOLD") {
+        r.grade = "SKIP";
+        const sideProb = null;
+        r.mcSideProb = sideProb;
+        r.qKelly = null;
+        return;
+      }
       r.grade = computeGrade({
         evPct: r.ev, cv: r.cv, poGp: r.poGp, projection: r.proj,
         baseline: r.base, q25: r.q25, q75: r.q75, line: r.line,
