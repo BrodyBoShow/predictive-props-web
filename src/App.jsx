@@ -1847,33 +1847,61 @@ export default function NBAPropsModel() {
   // adjustments pushed projection far above the player's own baseline (SKIP IT).
   // modelLift distinguishes these: tiny lift = book is wrong; big lift can be model reach.
   const computeGrade = ({ evPct, cv, poGp, projection, baseline, q25 = null, q75 = null, line = null, monteCarlo = null, trustScore = null, injCascadeAdj = 0, driftDown = false }) => {
+    // ── Kelly-driven grading (replaces the old EV-threshold heuristic) ─────
+    // Compute the quarter-Kelly bet size from MC win probability and map to
+    // tiers. This naturally handles wide tails (low MC prob → tiny Kelly →
+    // demoted automatically) without arbitrary EV thresholds.
+    //
+    // qKelly thresholds (% of bankroll):
+    //   ≥ 2.0%   → LOCK         (big confident edge, low variance)
+    //   0.8–2.0% → ACTIONABLE   (clean edge)
+    //   0.2–0.8% → WATCH        (small edge or moderate variance)
+    //   < 0.2%   → SKIP         (no meaningful bet)
+    //
+    // EV-based fallback kicks in only when MC simulation didn't run.
     const absEv     = Math.abs(evPct || 0);
     const liftSigned = baseline > 0 ? (projection - baseline) / baseline : 0;
     const modelLift = Math.abs(liftSigned);
     const isOver  = projection > (line || 0);
-    const liftAligned = line == null || line <= 0 || Math.abs(projection - line) < 0.01
-      ? true
-      : isOver ? liftSigned >= -0.01 : liftSigned <= 0.01;
-    const trustOk   = trustScore != null ? trustScore >= 70 : (cv != null && cv < 0.30);
-    const cvOk40    = cv != null && cv < 0.40;
-    const cvKnown   = cv != null;
-    const sampleOk  = (poGp || 0) >= 3;
-    const liftOk15  = liftAligned ? modelLift < 0.20 : modelLift < 0.10;
-    const liftOk20  = liftAligned ? modelLift < 0.25 : modelLift < 0.15;
     const mcProb  = isOver ? (monteCarlo?.prob_over ?? null) : (monteCarlo?.prob_under ?? null);
-    const mcOk    = mcProb == null || mcProb >= 0.585;
-    // Directional quantile safety: floor doesn't collapse (over) / ceiling stays compressed (under).
-    const quantileSafe = line == null || line <= 0
-      ? true
-      : isOver
-        ? (q25 == null || q25 >= line * 0.90)
-        : (q75 == null || q75 <= line * 1.10);
-    const lockLiftOk = liftAligned ? modelLift < 0.20 : modelLift < 0.08;
     const order = ["LOCK", "ACTIONABLE", "WATCH", "SKIP"];
+
     let tier = "SKIP";
-    if (absEv > 10 && trustOk && sampleOk && quantileSafe && mcOk && lockLiftOk) tier = "LOCK";
-    else if (absEv > 7 && (cvOk40 || !cvKnown) && sampleOk && liftOk15 && mcOk) tier = "ACTIONABLE";
-    else if (absEv > 4 && liftOk20) tier = "WATCH";
+    if (mcProb != null && line && line > 0) {
+      // Quarter-Kelly with -110 juice (b = 10/11)
+      const p = Math.min(0.85, Math.max(0.15, mcProb));
+      const b = 10 / 11;
+      const kelly = Math.max(0, (b * p - (1 - p)) / b);
+      const qKellyPct = kelly * 0.25 * 100;   // quarter-Kelly, in % of bankroll
+      if (qKellyPct >= 2.0)       tier = "LOCK";
+      else if (qKellyPct >= 0.8)  tier = "ACTIONABLE";
+      else if (qKellyPct >= 0.2)  tier = "WATCH";
+      else                        tier = "SKIP";
+    } else {
+      // Fallback when MC didn't run — use legacy EV thresholds with safety nets
+      const trustOk   = trustScore != null ? trustScore >= 70 : (cv != null && cv < 0.30);
+      const cvOk40    = cv != null && cv < 0.40;
+      const cvKnown   = cv != null;
+      const sampleOk  = (poGp || 0) >= 3;
+      const liftAligned = line == null || line <= 0 || Math.abs(projection - line) < 0.01
+        ? true
+        : isOver ? liftSigned >= -0.01 : liftSigned <= 0.01;
+      const liftOk15  = liftAligned ? modelLift < 0.20 : modelLift < 0.10;
+      const liftOk20  = liftAligned ? modelLift < 0.25 : modelLift < 0.15;
+      const quantileSafe = line == null || line <= 0
+        ? true
+        : isOver
+          ? (q25 == null || q25 >= line * 0.90)
+          : (q75 == null || q75 <= line * 1.10);
+      const lockLiftOk = liftAligned ? modelLift < 0.20 : modelLift < 0.08;
+      if (absEv > 10 && trustOk && sampleOk && quantileSafe && lockLiftOk) tier = "LOCK";
+      else if (absEv > 7 && (cvOk40 || !cvKnown) && sampleOk && liftOk15) tier = "ACTIONABLE";
+      else if (absEv > 4 && liftOk20) tier = "WATCH";
+    }
+
+    // Model-reach guardrail: extreme lifts on small samples still get capped
+    // (this was the audit's modelLift fix — Gemini agreed it stays in)
+    if (tier === "LOCK" && modelLift >= 0.20) tier = "ACTIONABLE";
     // Systematic over-projection: model has missed high 3+ times in a row → drop one tier.
     if (driftDown) tier = order[Math.min(order.indexOf(tier) + 1, 3)];
     return tier;
