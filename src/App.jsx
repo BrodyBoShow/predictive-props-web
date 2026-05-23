@@ -328,6 +328,11 @@ const edgeTagsFor = (r) => {
   else if (r.modelLift != null && r.modelLift >= 0.20) tags.push({ label:"MODEL REACH", tone:"#f59e0b" });
   if (r.mcSideProb != null && r.mcSideProb >= 0.60) tags.push({ label:"SIM OK", tone:"#10b981" });
   if (r.driftDown) tags.push({ label:"DRIFT", tone:"#f59e0b" });
+  // WIDE TAIL — opposite quantile crosses the book line by ≥10% (variance too
+  // high for confident lean; this is the role-player-explosion pattern that
+  // crushed historical UNDER picks like Conley/Caruso/Hart). Shows up most
+  // often on bench players in high-leverage games.
+  if (r.wideTail) tags.push({ label:"WIDE TAIL", tone:"#ef4444" });
   return tags.slice(0, 4);
 };
 
@@ -354,6 +359,7 @@ const betQualityScore = (r) => {
   if (r.resourceAllocated) score -= 4;
   if (r.sharedConflict || r.corrMixed) score -= 7;
   if (r.driftDown) score -= 12;
+  if (r.wideTail)  score -= 18;   // wide-tail bets historically blew up — heavy penalty
   if (r.grade === "LOCK") score += 6;
   if (r.grade === "SKIP") score -= 10;
   return Math.max(0, Math.min(100, Math.round(score)));
@@ -1283,28 +1289,23 @@ export default function NBAPropsModel() {
           // players blew up by +120–300% when upside tail was wide). Refuse to
           // lean UNDER when q75 says the player can easily clear the line.
           // Refuse to lean OVER when q25 says the floor sits well below.
-          const _qLean = (() => {
-            const proj_above = proj > task.line;
-            const proj_below = proj < task.line;
-            if (q25 == null || q75 == null) {
-              return proj_above ? "OVER" : proj_below ? "UNDER" : "HOLD";
-            }
-            const upsideClear  = q75 > task.line * 1.10;   // wide upside tail
-            const downsideClear = q25 < task.line * 0.90;  // wide downside tail
-            if (proj_above) {
-              return downsideClear ? "PASS" : "OVER";
-            }
-            if (proj_below) {
-              return upsideClear ? "PASS" : "UNDER";
-            }
-            return "HOLD";
-          })();
-          // If quantiles flagged this as PASS, force grade to SKIP regardless of EV%
-          const _finalGrade = (_qLean === "PASS" || _qLean === "HOLD") ? "SKIP" : grade;
+          // Keep simple OVER/UNDER lean so all cards remain visible
+          const _qLean = proj > task.line ? "OVER" : proj < task.line ? "UNDER" : "HOLD";
+          // Detect wide-variance bets where the OPPOSITE tail clears the book
+          // line — these are the 100%+-error blowups (Conley/Caruso/Hart/etc).
+          // Don't hide them; just demote the grade one tier so they never
+          // appear in BEST BETS, and tag them so the user can see why.
+          const _wideTail = (q25 != null && q75 != null) && (
+            (_qLean === "OVER"  && q25 < task.line * 0.90) ||
+            (_qLean === "UNDER" && q75 > task.line * 1.10)
+          );
+          const _demote = { LOCK: "ACTIONABLE", ACTIONABLE: "WATCH", WATCH: "SKIP", SKIP: "SKIP" };
+          const _finalGrade = _wideTail ? _demote[grade] : grade;
           results.push({
             name: playerKey, team: task.team, propId: task.propId, line: task.line,
             proj, base, ev, cv, grade: _finalGrade, poGp, modelLift,
             lean: _qLean,
+            wideTail: _wideTail,
             band: data.confidence_band ?? null,
             gameCtx: data.game_context ?? null,
             monteCarlo: mc,
@@ -1355,26 +1356,14 @@ export default function NBAPropsModel() {
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     const recalcAfterAllocation = (r) => {
       r.ev = +((r.proj / r.line - 1) * 100).toFixed(2);
-      // Re-apply quantile-gated lean after pool trim (proj may have moved)
       const projAbove = r.proj > r.line;
       const projBelow = r.proj < r.line;
-      if (r.q25 != null && r.q75 != null) {
-        const upsideClear   = r.q75 > r.line * 1.10;
-        const downsideClear = r.q25 < r.line * 0.90;
-        if (projAbove)      r.lean = downsideClear ? "PASS" : "OVER";
-        else if (projBelow) r.lean = upsideClear   ? "PASS" : "UNDER";
-        else                r.lean = "HOLD";
-      } else {
-        r.lean = projAbove ? "OVER" : projBelow ? "UNDER" : "HOLD";
-      }
-      // If quantile gate flagged PASS/HOLD, force SKIP grade
-      if (r.lean === "PASS" || r.lean === "HOLD") {
-        r.grade = "SKIP";
-        const sideProb = null;
-        r.mcSideProb = sideProb;
-        r.qKelly = null;
-        return;
-      }
+      r.lean = projAbove ? "OVER" : projBelow ? "UNDER" : "HOLD";
+      // Re-check wide-tail flag with new proj
+      r.wideTail = (r.q25 != null && r.q75 != null) && (
+        (r.lean === "OVER"  && r.q25 < r.line * 0.90) ||
+        (r.lean === "UNDER" && r.q75 > r.line * 1.10)
+      );
       r.grade = computeGrade({
         evPct: r.ev, cv: r.cv, poGp: r.poGp, projection: r.proj,
         baseline: r.base, q25: r.q25, q75: r.q75, line: r.line,
@@ -1390,6 +1379,11 @@ export default function NBAPropsModel() {
         r.qKelly = +(k * 0.25 * 100).toFixed(1);
       } else {
         r.qKelly = null;
+      }
+      // Apply wide-tail demotion AFTER grade recompute (one tier down, never below SKIP)
+      if (r.wideTail) {
+        const _demote = { LOCK: "ACTIONABLE", ACTIONABLE: "WATCH", WATCH: "SKIP", SKIP: "SKIP" };
+        r.grade = _demote[r.grade] || r.grade;
       }
     };
     const groups = {};
